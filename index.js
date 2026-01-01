@@ -68,13 +68,13 @@ function formatServerMessage(server) {
       text += `${i+1}. <b>${escapeHTML(p.name)}</b> | <u>${p.score}</u> | <i>${p.time} мин.</i>\n`;
     });
   } else {
-    text += `⚠️ Игроки не доступны (UDP может быть заблокирован на бесплатной платформе)`;
+    text += `⚠️ Игроки недоступны (UDP может быть заблокирован на бесплатной платформе)`;
   }
 
   return text;
 }
 
-// Кнопки для сервера
+// Кнопки для конкретного сервера
 function getServerButtons(serverIndex) {
   return {
     inline_keyboard: [
@@ -86,7 +86,7 @@ function getServerButtons(serverIndex) {
   };
 }
 
-// Отправка информации о сервере
+// Отправка информации о сервере (только выбранного)
 async function sendServerInfo(chatId, serverIndex) {
   const state = chatState.get(chatId);
   if (!state || !state.servers[serverIndex]) return;
@@ -102,19 +102,21 @@ async function sendServerInfo(chatId, serverIndex) {
   });
 }
 
-// /start
-bot.onText(/\/start/, msg => {
-  const chatId = msg.chat.id;
+// Главное меню /start или Старт
+function sendMainMenu(chatId, userId) {
   chatState.set(chatId, { servers: [...config.serverList] });
 
   let buttons = [['🎮 Сервера', '➕ Добавить сервер'], ['ℹ️ О боте']];
-  // Админ-кнопка только для ADMIN
-  if (msg.from.id === ADMIN_ID) buttons.push(['🛠 Админ']);
+  if (userId === ADMIN_ID) buttons.push(['🛠 Админ']);
 
-  bot.sendMessage(chatId,
-    '🎮 CS 1.6 Bot\nВыберите действие:',
-    { reply_markup: { keyboard: buttons, resize_keyboard: true } }
-  );
+  bot.sendMessage(chatId, '🎮 CS 1.6 Bot\nВыберите действие:', {
+    reply_markup: { keyboard: buttons, resize_keyboard: true }
+  });
+}
+
+// /start
+bot.onText(/\/start/, msg => {
+  sendMainMenu(msg.chat.id, msg.from.id);
 });
 
 // Обработка текстовых кнопок
@@ -123,34 +125,40 @@ bot.on('message', msg => {
   if (!chatState.has(chatId)) chatState.set(chatId, { servers: [...config.serverList] });
   const state = chatState.get(chatId);
 
-  if (msg.text === '🎮 Сервера') {
-    if (!state.servers.length) return bot.sendMessage(chatId, 'Список серверов пуст. Добавьте сервер.');
-    const buttons = state.servers.map((s,i) => [{ text: `${s.host}:${s.port}`, callback_data: `show_${i}` }]);
-    bot.sendMessage(chatId, 'Выберите сервер:', { reply_markup: { inline_keyboard: buttons } });
-  }
+  switch(msg.text) {
+    case '🎮 Сервера':
+      if (!state.servers.length) return bot.sendMessage(chatId, 'Список серверов пуст. Добавьте сервер.');
+      const buttons = state.servers.map((s,i) => [{ text: `${s.host}:${s.port}`, callback_data: `show_${i}` }]);
+      bot.sendMessage(chatId, 'Выберите сервер:', { reply_markup: { inline_keyboard: buttons } });
+      break;
 
-  if (msg.text === '➕ Добавить сервер') {
-    bot.sendMessage(chatId, 'Отправьте IP:PORT нового сервера (пример: 46.174.55.32:27015)');
-    bot.once('message', m => {
-      const [host, port] = m.text.split(':');
-      if (!host || !port) return bot.sendMessage(chatId, '❌ Неверный формат');
-      state.servers.push({ host: host.trim(), port: Number(port) });
-      bot.sendMessage(chatId, `✅ Сервер ${host}:${port} добавлен!`);
-    });
-  }
+    case '➕ Добавить сервер':
+      bot.sendMessage(chatId, 'Отправьте IP:PORT нового сервера (пример: 46.174.55.32:27015)');
+      bot.once('message', m => {
+        const [host, port] = m.text.split(':');
+        if (!host || !port) return bot.sendMessage(chatId, '❌ Неверный формат');
+        state.servers.push({ host: host.trim(), port: Number(port) });
+        bot.sendMessage(chatId, `✅ Сервер ${host}:${port} добавлен!`);
+      });
+      break;
 
-  if (msg.text === 'ℹ️ О боте') {
-    bot.sendMessage(chatId,
-      `CS 1.6 Telegram Bot\nВерсия: 1.0.0\nФункции: просмотр серверов, онлайн, карта, список игроков (если UDP доступен)`);
-  }
+    case 'ℹ️ О боте':
+      bot.sendMessage(chatId,
+        `CS 1.6 Telegram Bot\nВерсия: 1.0.0\nФункции: просмотр серверов, онлайн, карта, список игроков (если UDP доступен)`);
+      break;
 
-  if (msg.text === '🛠 Админ') {
-    if (msg.from.id !== ADMIN_ID) return;
-    const totalChats = chatState.size;
-    let totalServers = 0;
-    chatState.forEach(c => totalServers += c.servers.length);
-    bot.sendMessage(chatId,
-      `👮‍ Админ панель\nЧатов: ${totalChats}\nВсего серверов: ${totalServers}`);
+    case '🛠 Админ':
+      if (msg.from.id !== ADMIN_ID) return;
+      const totalChats = chatState.size;
+      let totalServers = 0;
+      chatState.forEach(c => totalServers += c.servers.length);
+      bot.sendMessage(chatId,
+        `👮‍ Админ панель\nЧатов: ${totalChats}\nВсего серверов: ${totalServers}`);
+      break;
+
+    case 'Старт':
+      sendMainMenu(chatId, msg.from.id);
+      break;
   }
 });
 
@@ -161,7 +169,7 @@ bot.on('callback_query', async query => {
 
   if (query.data.startsWith('show_')) {
     const idx = Number(query.data.split('_')[1]);
-    await sendServerInfo(chatId, idx);
+    await sendServerInfo(chatId, idx); // только выбранный сервер
     return bot.answerCallbackQuery(query.id);
   }
 
