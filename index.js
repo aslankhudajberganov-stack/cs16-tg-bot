@@ -2,14 +2,18 @@ const TelegramBot = require('node-telegram-bot-api');
 const Gamedig = require('gamedig');
 const config = require('./config');
 
+if (!config.token) {
+  throw new Error('Установите BOT_TOKEN в переменных окружения!');
+}
+
 const bot = new TelegramBot(config.token, { polling: true });
 console.log('🤖 Бот запущен');
 
-// ===== СОСТОЯНИЕ ЧАТОВ =====
+// ================= СОСТОЯНИЕ ЧАТОВ =================
 const chats = {}; 
 // chats[chatId] = { servers: [], mode: null }
 
-// ===== HELPERS =====
+// ================= HELPERS =================
 function getChat(chatId) {
   if (!chats[chatId]) {
     chats[chatId] = {
@@ -20,14 +24,17 @@ function getChat(chatId) {
   return chats[chatId];
 }
 
+// ❗ КРИТИЧЕСКИ ВАЖНО для CS 1.6
 function escapeHTML(text = '') {
   return text
+    .toString()
+    .replace(/[^\x20-\x7Eа-яА-ЯёЁ]/g, '') // удаляем мусор
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
 }
 
-// ===== SERVER QUERY =====
+// ================= SERVER QUERY =================
 async function fetchServerData(server) {
   try {
     const state = await Gamedig.query({
@@ -36,30 +43,30 @@ async function fetchServerData(server) {
       port: server.port
     });
 
-    server.name = state.name;
-    server.map = state.map;
-    server.maxPlayers = state.maxplayers;
-    server.players = state.players.map(p => ({
+    server.name = state.name || `${server.host}:${server.port}`;
+    server.map = state.map || '-';
+    server.maxPlayers = state.maxplayers || 0;
+    server.players = (state.players || []).map(p => ({
       name: p.name || 'Unknown',
       score: p.score || 0,
       time: Math.floor((p.time || 0) / 60)
     }));
   } catch {
-    server.name = 'Сервер недоступен';
+    server.name = '❌ Сервер недоступен';
     server.map = '-';
     server.maxPlayers = 0;
     server.players = [];
   }
 }
 
-// ===== FORMAT =====
+// ================= FORMAT =================
 function formatServer(server) {
   let text = `<b>${escapeHTML(server.name)}</b>\n`;
   text += `🗺 Карта: ${escapeHTML(server.map)}\n`;
   text += `👥 Игроки: ${server.players.length}/${server.maxPlayers}\n\n`;
 
   if (server.players.length) {
-    server.players.forEach((p, i) => {
+    server.players.slice(0, 20).forEach((p, i) => {
       text += `${i + 1}. ${escapeHTML(p.name)} | ${p.score} | ${p.time} мин\n`;
     });
   } else {
@@ -69,13 +76,12 @@ function formatServer(server) {
   return text;
 }
 
-// ===== MENUS =====
+// ================= MENUS =================
 function mainMenu() {
   return {
     inline_keyboard: [
       [{ text: '🎮 Сервера', callback_data: 'menu_servers' }],
-      [{ text: '➕ Добавить сервер', callback_data: 'add_server' }],
-      [{ text: '📤 Поделиться', url: 'https://t.me/YourBotUsername' }]
+      [{ text: '➕ Добавить сервер', callback_data: 'add_server' }]
     ]
   };
 }
@@ -89,7 +95,7 @@ function serverButtons(index) {
   };
 }
 
-// ===== COMMANDS =====
+// ================= COMMANDS =================
 bot.onText(/\/start/, (msg) => {
   getChat(msg.chat.id);
   bot.sendMessage(msg.chat.id, 'Главное меню:', {
@@ -97,7 +103,7 @@ bot.onText(/\/start/, (msg) => {
   });
 });
 
-// ===== CALLBACKS =====
+// ================= CALLBACKS =================
 bot.on('callback_query', async (q) => {
   const chatId = q.message.chat.id;
   const chat = getChat(chatId);
@@ -115,6 +121,11 @@ bot.on('callback_query', async (q) => {
 
   // Список серверов
   if (data === 'menu_servers') {
+    if (!chat.servers.length) {
+      bot.answerCallbackQuery(q.id, { text: 'Серверов нет' });
+      return;
+    }
+
     const buttons = chat.servers.map((s, i) => ([
       { text: `${s.host}:${s.port}`, callback_data: `show_${i}` }
     ]));
@@ -164,7 +175,7 @@ bot.on('callback_query', async (q) => {
   }
 });
 
-// ===== MESSAGE INPUT =====
+// ================= MESSAGE INPUT =================
 bot.on('message', async (msg) => {
   const chat = getChat(msg.chat.id);
   if (chat.mode !== 'add_server') return;
@@ -172,8 +183,8 @@ bot.on('message', async (msg) => {
   chat.mode = null;
 
   const [host, port] = msg.text.split(':');
-  if (!host || !port) {
-    bot.sendMessage(msg.chat.id, '❌ Неверный формат');
+  if (!host || !port || isNaN(port)) {
+    bot.sendMessage(msg.chat.id, '❌ Неверный формат. Пример: 46.174.55.32:27015');
     return;
   }
 
