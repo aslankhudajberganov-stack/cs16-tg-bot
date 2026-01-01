@@ -1,23 +1,16 @@
 {
-  "name": "functions",
-  "description": "Cloud Functions for Firebase",
+  "name": "cs16-tg-bot",
+  "version": "1.0.0",
+  "description": "Telegram bot для CS 1.6 серверов",
+  "main": "index.js",
   "scripts": {
-    "serve": "firebase emulators:start --only functions",
-    "shell": "firebase functions:shell",
-    "start": "npm run shell",
-    "deploy": "firebase deploy --only functions",
-    "logs": "firebase functions:log"
+    "start": "node index.js"
   },
   "engines": {
     "node": "24"
   },
-  "main": "index.js",
   "dependencies": {
-    "firebase-admin": "^13.6.0",
-    "firebase-functions": "^7.0.0"
-  },
-  "devDependencies": {
-    "firebase-functions-test": "^3.4.1"
+    "node-telegram-bot-api": "^0.61.0"
   },
   "private": true
 }
