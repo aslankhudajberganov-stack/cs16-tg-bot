@@ -1,74 +1,59 @@
 const TelegramBot = require('node-telegram-bot-api');
-const { query } = require('gamedig');
-const { token, server } = require('./config');
+const Gamedig = require('gamedig');
 
-const bot = new TelegramBot(token, { polling: true });
+const TOKEN = process.env.BOT_TOKEN; // получаем токен из переменной окружения
+const bot = new TelegramBot(TOKEN, { polling: true });
 
-// Экранирование HTML для безопасности
-function escapeHTML(text) {
-  if (!text) return '';
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;');
-}
+const SERVER = {
+  host: '46.174.55.32',
+  port: 27015,
+  type: 'cs16' // важно для Gamedig, чтобы не было ошибки "Invalid game"
+};
 
-// Получаем информацию о сервере
-async function getServerInfo(host, port) {
+// Функция получения информации о сервере
+async function getServerInfo() {
   try {
-    const data = await query({
-      type: 'cs16',
-      host,
-      port
-    });
-    return data;
+    const state = await Gamedig.query(SERVER);
+    return state;
   } catch (err) {
-    throw new Error(err.message || 'Сервер недоступен');
+    console.error(err);
+    return null;
   }
 }
 
-// Форматируем сообщение для Telegram
-function formatMessage(data) {
-  let text = `<b>Сервер CS 1.6</b>\n`;
-  text += `Название: ${escapeHTML(data.name)}\n`;
-  text += `Карта: ${escapeHTML(data.map)}\n`;
-  text += `Игроки: ${data.players.length}/${data.maxplayers}\n\n`;
+// Форматирование сообщения
+function formatMessage(state) {
+  if (!state) return '❌ Сервер недоступен';
 
-  text += `<b>Игроки:</b>\n`;
-  data.players.forEach(p => {
-    text += `🎮 <b>${escapeHTML(p.name || 'Неизвестно')}</b> — <i>${p.score}</i> очк., <code>${p.time || '0 мин.'}</code>\n`;
+  let text = `<b>${state.name}</b>\n`;
+  text += `Карта: ${state.map}\n`;
+  text += `Игроки: ${state.players.length}/${state.maxplayers}\n\n`;
+  text += `<b>Список игроков:</b>\n`;
+  state.players.forEach(p => {
+    text += `🎮 <b>${p.name}</b> — <i>${p.score}</i> очк., <code>${p.time}</code>\n`;
   });
-
   return text;
 }
 
 // Команда /server
 bot.onText(/\/server/, async (msg) => {
   const chatId = msg.chat.id;
-  try {
-    const data = await getServerInfo(server.host, server.port);
-    await bot.sendMessage(chatId, formatMessage(data), {
-      parse_mode: 'HTML',
-      reply_markup: {
-        inline_keyboard: [[{ text: '🔄 Обновить сервер', callback_data: 'refresh' }]]
-      }
-    });
-  } catch (err) {
-    await bot.sendMessage(chatId, `❌ Сервер недоступен\n${err.message}`);
-  }
+  const state = await getServerInfo();
+  bot.sendMessage(chatId, formatMessage(state), {
+    parse_mode: 'HTML',
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: '🔄 Обновить сервер', callback_data: 'refresh' }]
+      ]
+    }
+  });
 });
 
-// Кнопка "Обновить сервер"
+// Кнопка обновления
 bot.on('callback_query', async (query) => {
   if (query.data === 'refresh') {
     const chatId = query.message.chat.id;
-    try {
-      const data = await getServerInfo(server.host, server.port);
-      await bot.sendMessage(chatId, formatMessage(data), { parse_mode: 'HTML' });
-    } catch (err) {
-      await bot.sendMessage(chatId, `❌ Сервер недоступен\n${err.message}`);
-    }
+    const state = await getServerInfo();
+    bot.sendMessage(chatId, formatMessage(state), { parse_mode: 'HTML' });
   }
 });
