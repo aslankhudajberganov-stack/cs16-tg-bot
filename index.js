@@ -1,182 +1,161 @@
+// index.js
 const TelegramBot = require('node-telegram-bot-api');
-const express = require('express');
-const bodyParser = require('body-parser');
 const Gamedig = require('gamedig');
-const config = require('./config');
+const config = require('./config'); // { token, serverList }
 
-if (!config.token) throw new Error('Установи BOT_TOKEN в переменных окружения');
+const bot = new TelegramBot(config.token, { polling: true });
 
-const app = express();
-app.use(bodyParser.json());
+console.log('🤖 Бот запущен...');
 
-const bot = new TelegramBot(config.token); // без polling
-const PORT = process.env.PORT || 3000;
-const URL = process.env.WEBHOOK_URL; // например https://yourdomain.com/bot<TOKEN>
-
-if (!URL) throw new Error('Установи WEBHOOK_URL в переменных окружения!');
-
-// ===== Устанавливаем Webhook =====
-bot.setWebHook(`${URL}/bot${config.token}`);
-
-// ===== ХРАНИЛИЩЕ ДЛЯ КАЖДОГО ЧАТА =====
+// Хранение состояния чата
 const chatState = new Map();
 
-// ===== Функции (как в предыдущей версии) =====
-function bottomMenu() {
-  return {
-    keyboard: [
-      ['🎮 Сервера', '➕ Добавить сервер'],
-      ['🔄 Обновить всё', 'ℹ️ О боте']
-    ],
-    resize_keyboard: true,
-    one_time_keyboard: false
-  };
+// Экранирование HTML
+function escapeHTML(text) {
+  if (!text) return '';
+  return text.replace(/&/g, '&amp;')
+             .replace(/</g, '&lt;')
+             .replace(/>/g, '&gt;')
+             .replace(/"/g, '&quot;')
+             .replace(/'/g, '&#039;');
 }
 
-function clean(text = '') {
-  return text
-    .toString()
-    .replace(/[^\x20-\x7Eа-яА-ЯёЁ]/g, '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
-}
-
-async function fetchServer(server) {
+// Получение данных сервера через Gamedig
+async function fetchServerData(server) {
   try {
     const state = await Gamedig.query({
       type: 'cs16',
       host: server.host,
-      port: server.port,
-      socketTimeout: 3000
+      port: server.port
     });
 
-    return {
-      online: true,
-      name: clean(state.name),
-      map: clean(state.map),
-      max: state.maxplayers,
-      players: (state.players || []).map(p => ({
-        name: clean(p.name || 'Unknown'),
-        kills: p.score || 0,
-        time: Math.floor((p.time || 0) / 60)
-      }))
-    };
-  } catch {
-    return { online: false };
+    server.name = state.name;
+    server.map = state.map;
+    server.maxPlayers = state.maxplayers;
+    server.players = state.players.map(p => ({
+      name: p.name || 'Unknown',
+      score: p.score || 0,
+      time: Math.floor((p.time || 0)/60)
+    }));
+
+  } catch (err) {
+    console.log(`Ошибка с сервером ${server.host}:${server.port}`, err);
+    server.name = 'Сервер недоступен';
+    server.map = '-';
+    server.maxPlayers = 0;
+    server.players = [];
   }
 }
 
-function formatServer(info, server, top10 = false) {
-  if (!info.online) return `🔴 <b>${server.host}:${server.port}</b>\nСервер недоступен`;
+// Формат сообщения
+function formatServerMessage(server) {
+  let occupancy = server.players.length && server.maxPlayers
+                  ? Math.round((server.players.length / server.maxPlayers)*100)
+                  : 0;
 
-  let playersList = top10
-    ? info.players.sort((a, b) => b.kills - a.kills).slice(0, 10)
-    : info.players;
+  let text = `<b>${escapeHTML(server.name)}</b>\n`;
+  text += `🗺 <b>Карта:</b> ${escapeHTML(server.map)}\n`;
+  text += `📊 <b>Игроки:</b> ${server.players.length} (~${occupancy}% загрузка)\n`;
+  text += `⭐ <b>Макс. игроков:</b> ${server.maxPlayers}\n\n`;
 
-  let text = top10
-    ? `🏆 <b>Топ ${playersList.length} игроков на ${info.name}</b>\n`
-    : `🟢 <b>${info.name}</b>\n`;
-
-  text += `🗺 Карта: <b>${info.map}</b>\n`;
-  text += `👥 Игроки: <b>${info.players.length}/${info.max}</b>\n\n`;
-  text += `<b>Список игроков (Имя | КД | Время)</b>\n`;
-
-  playersList.forEach((p, i) => {
-    text += `${i + 1}. ${p.name} | ${p.kills} | ${p.time}м\n`;
-  });
+  if (server.players.length > 0) {
+    text += `<b>Игроки:</b>\n`;
+    server.players.slice(0, 10).forEach((p, i) => {
+      text += `${i+1}. <b>${escapeHTML(p.name)}</b> | <u>${p.score}</u> | <i>${p.time} мин.</i>\n`;
+    });
+  } else {
+    text += `⚠️ Игроки не доступны (UDP может быть заблокирован)\n`;
+  }
 
   return text;
 }
 
-function serverButtons(index) {
+// Кнопки
+function getServerButtons(serverIndex) {
   return {
     inline_keyboard: [
       [
-        { text: '🔄 Обновить', callback_data: `refresh_${index}` },
-        { text: '🏆 Топ 10', callback_data: `top10_${index}` },
-        { text: '🔙 Все игроки', callback_data: `all_${index}` }
+        { text: '🔄 Обновить', callback_data: `refresh_${serverIndex}` }
+      ],
+      [
+        { text: '➕ Добавить сервер', callback_data: 'add_server' },
+        { text: '📤 Поделиться ботом', url: 'https://t.me/YourBotUsername' }
       ]
     ]
   };
 }
 
-async function showServer(chatId, index, top10 = false) {
+// Отправка инфо о сервере
+async function sendServerInfo(chatId, serverIndex) {
   const state = chatState.get(chatId);
-  const server = state.servers[index];
-  if (!server) return;
+  if (!state || !state.servers[serverIndex]) return;
 
-  const info = await fetchServer(server);
+  const server = state.servers[serverIndex];
+  await fetchServerData(server);
 
-  bot.sendMessage(chatId, formatServer(info, server, top10), {
+  bot.sendMessage(chatId, formatServerMessage(server), {
     parse_mode: 'HTML',
-    reply_markup: serverButtons(index)
+    reply_markup: getServerButtons(serverIndex)
   });
 }
 
-// ===== EXPRESS ROUTE для Webhook =====
-app.post(`/bot${config.token}`, (req, res) => {
-  bot.processUpdate(req.body);
-  res.sendStatus(200);
-});
-
-app.listen(PORT, () => console.log(`Webhook сервер запущен на порту ${PORT}`));
-
-// ===== События бота =====
+// /start
 bot.onText(/\/start/, msg => {
   chatState.set(msg.chat.id, { servers: [...config.serverList] });
 
-  bot.sendMessage(
-    msg.chat.id,
-    '🎮 CS 1.6 Server Bot\nВыбери действие:',
-    { reply_markup: bottomMenu() }
+  bot.sendMessage(msg.chat.id,
+    '🎮 CS 1.6 Bot\nВыберите сервер или добавьте новый:',
+    { reply_markup: { keyboard: [['🎮 Сервера', '➕ Добавить сервер']], resize_keyboard: true } }
   );
 });
 
-bot.on('message', async msg => {
+// Текстовые кнопки
+bot.on('message', msg => {
   const chatId = msg.chat.id;
-  if (!chatState.has(chatId)) chatState.set(chatId, { servers: [] });
+  if (!chatState.has(chatId)) chatState.set(chatId, { servers: [...config.serverList] });
   const state = chatState.get(chatId);
 
   if (msg.text === '🎮 Сервера') {
-    if (!state.servers.length) return bot.sendMessage(chatId, 'Серверов нет. Добавь сервер.');
-    const buttons = state.servers.map((s, i) => [
-      { text: `${s.host}:${s.port}`, callback_data: `show_${i}` }
-    ]);
-    bot.sendMessage(chatId, 'Выбери сервер:', { reply_markup: { inline_keyboard: buttons } });
+    if (!state.servers.length) {
+      return bot.sendMessage(chatId, 'Список серверов пуст. Добавьте сервер.');
+    }
+
+    const buttons = state.servers.map((s, i) => [{ text: `${s.host}:${s.port}`, callback_data: `show_${i}` }]);
+    bot.sendMessage(chatId, 'Выберите сервер:', { reply_markup: { inline_keyboard: buttons } });
   }
 
   if (msg.text === '➕ Добавить сервер') {
-    bot.sendMessage(chatId, 'Отправь IP:PORT (пример 46.174.55.32:27015)');
+    bot.sendMessage(chatId, 'Отправьте IP:PORT нового сервера (пример: 46.174.55.32:27015)');
+
     bot.once('message', m => {
       const [host, port] = m.text.split(':');
-      if (!host || !port || isNaN(port)) return bot.sendMessage(chatId, '❌ Неверный формат');
+      if (!host || !port) return bot.sendMessage(chatId, '❌ Неверный формат');
+
       state.servers.push({ host: host.trim(), port: Number(port) });
-      bot.sendMessage(chatId, '✅ Сервер добавлен');
+      bot.sendMessage(chatId, `✅ Сервер ${host}:${port} добавлен!`);
     });
-  }
-
-  if (msg.text === '🔄 Обновить всё') {
-    for (let i = 0; i < state.servers.length; i++) await showServer(chatId, i);
-  }
-
-  if (msg.text === 'ℹ️ О боте') {
-    bot.sendMessage(chatId, 'CS 1.6 Bot\nОнлайн мониторинг серверов\nРаботает 24/7');
   }
 });
 
-bot.on('callback_query', async q => {
-  const chatId = q.message.chat.id;
+// Кнопки под сообщением
+bot.on('callback_query', async query => {
+  const chatId = query.message.chat.id;
   const state = chatState.get(chatId);
 
-  const index = Number(q.data.split('_')[1]);
-  const server = state.servers[index];
-  if (!server) return;
+  if (query.data.startsWith('show_')) {
+    const idx = Number(query.data.split('_')[1]);
+    await sendServerInfo(chatId, idx);
+    return bot.answerCallbackQuery(query.id);
+  }
 
-  if (q.data.startsWith('show_')) await showServer(chatId, index, false);
-  if (q.data.startsWith('refresh_')) await showServer(chatId, index, false);
-  if (q.data.startsWith('top10_')) await showServer(chatId, index, true);
-  if (q.data.startsWith('all_')) await showServer(chatId, index, false);
+  if (query.data.startsWith('refresh_')) {
+    const idx = Number(query.data.split('_')[1]);
+    await sendServerInfo(chatId, idx);
+    return bot.answerCallbackQuery(query.id, { text: 'Обновлено' });
+  }
 
-  bot.answerCallbackQuery(q.id);
+  if (query.data === 'add_server') {
+    bot.sendMessage(chatId, 'Отправьте IP:PORT нового сервера');
+    return bot.answerCallbackQuery(query.id);
+  }
 });
