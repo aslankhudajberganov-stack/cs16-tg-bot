@@ -81,88 +81,83 @@ function getServerButtons(serverIndex) {
   };
 }
 
-// Отправка инфо о сервере
-async function sendServerInfo(chatId, serverIndex) {
-  const state = chatState.get(chatId);
-  if (!state || !state.servers[serverIndex]) return;
-
-  const server = state.servers[serverIndex];
-  await fetchServerData(server);
-
-  bot.sendMessage(chatId, formatServerMessage(server), {
-    parse_mode: 'HTML',
-    reply_markup: getServerButtons(serverIndex)
-  });
-}
-
-// Главное меню
-function sendMainMenu(chatId, userId) {
-  chatState.set(chatId, { servers: [...config.serverList] });
-
-  const buttons = [['🎮 Сервера', '➕ Добавить сервер'], ['ℹ️ О боте']];
-  if (userId === ADMIN_ID) buttons.push(['🛠 Админ']);
-
-  bot.sendMessage(chatId, '🎮 CS 1.6 Bot\nВыберите действие:', {
-    reply_markup: { keyboard: buttons, resize_keyboard: true }
-  });
+// Главное inline меню
+function getMainMenu(userId) {
+  const buttons = [
+    [{ text: 'Старт', callback_data: 'main_start' }, { text: '🎮 Сервера', callback_data: 'main_servers' }],
+    [{ text: '➕ Добавить сервер', callback_data: 'main_add' }, { text: 'ℹ️ О боте', callback_data: 'main_info' }]
+  ];
+  if (userId === ADMIN_ID) buttons.push([{ text: '🛠 Админ', callback_data: 'main_admin' }]);
+  return { inline_keyboard: buttons };
 }
 
 // /start
-bot.onText(/\/start/, msg => sendMainMenu(msg.chat.id, msg.from.id));
+bot.onText(/\/start/, msg => {
+  chatState.set(msg.chat.id, { servers: [...config.serverList] });
+  bot.sendMessage(msg.chat.id, '🎮 CS 1.6 Bot\nВыберите действие:', {
+    reply_markup: getMainMenu(msg.from.id)
+  });
+});
 
-// Обработка текстовой клавиатуры
-bot.on('message', msg => {
-  const chatId = msg.chat.id;
+// Обработка callback_query
+bot.on('callback_query', async query => {
+  const chatId = query.message.chat.id;
+  const userId = query.from.id;
+
   if (!chatState.has(chatId)) chatState.set(chatId, { servers: [...config.serverList] });
   const state = chatState.get(chatId);
 
-  switch(msg.text) {
-    case 'Старт':
-      sendMainMenu(chatId, msg.from.id);
-      break;
-
-    case '🎮 Сервера':
-      if (!state.servers.length) return bot.sendMessage(chatId, 'Список серверов пуст. Добавьте сервер.');
-      const serverButtons = state.servers.map((s,i) => [{ text: `${s.host}:${s.port}`, callback_data: `show_${i}` }]);
-      bot.sendMessage(chatId, 'Выберите сервер:', { reply_markup: { inline_keyboard: serverButtons } });
-      break;
-
-    case '➕ Добавить сервер':
-      bot.sendMessage(chatId, 'Отправьте IP:PORT нового сервера (пример: 46.174.55.32:27015)');
-      bot.once('message', m => {
-        const [host, port] = m.text.split(':');
-        if (!host || !port) return bot.sendMessage(chatId, '❌ Неверный формат');
-        state.servers.push({ host: host.trim(), port: Number(port) });
-        bot.sendMessage(chatId, `✅ Сервер ${host}:${port} добавлен!`);
-      });
-      break;
-
-    case 'ℹ️ О боте':
-      bot.sendMessage(chatId, `CS 1.6 Telegram Bot\nВерсия: 1.0.0\nФункции: просмотр серверов, онлайн, карта, список игроков`);
-      break;
-
-    case '🛠 Админ':
-      if (msg.from.id !== ADMIN_ID) return;
-      let totalServers = 0;
-      chatState.forEach(c => totalServers += c.servers.length);
-      bot.sendMessage(chatId, `👮‍ Админ панель\nЧатов: ${chatState.size}\nВсего серверов: ${totalServers}`);
-      break;
+  // Главное меню
+  if (query.data === 'main_start') {
+    return bot.editMessageText('🎮 Главное меню:', {
+      chat_id: chatId,
+      message_id: query.message.message_id,
+      reply_markup: getMainMenu(userId)
+    });
   }
-});
 
-// Обработка inline кнопок под сервером
-bot.on('callback_query', async query => {
-  const chatId = query.message.chat.id;
-  const state = chatState.get(chatId);
+  if (query.data === 'main_servers') {
+    if (!state.servers.length) return bot.answerCallbackQuery(query.id, { text: 'Список серверов пуст.' });
+    const serverButtons = state.servers.map((s,i) => [{ text: `${s.host}:${s.port}`, callback_data: `show_${i}` }]);
+    return bot.editMessageText('Выберите сервер:', {
+      chat_id: chatId,
+      message_id: query.message.message_id,
+      reply_markup: { inline_keyboard: serverButtons }
+    });
+  }
 
-  if (!state) return bot.answerCallbackQuery(query.id);
+  if (query.data === 'main_add') {
+    bot.sendMessage(chatId, 'Отправьте IP:PORT нового сервера (пример: 46.174.55.32:27015)');
+    bot.once('message', m => {
+      const [host, port] = m.text.split(':');
+      if (!host || !port) return bot.sendMessage(chatId, '❌ Неверный формат');
+      state.servers.push({ host: host.trim(), port: Number(port) });
+      bot.sendMessage(chatId, `✅ Сервер ${host}:${port} добавлен!`);
+    });
+    return bot.answerCallbackQuery(query.id);
+  }
 
+  if (query.data === 'main_info') {
+    bot.sendMessage(chatId, `CS 1.6 Telegram Bot\nВерсия: 1.0.0\nФункции: просмотр серверов, онлайн, карта, список игроков`);
+    return bot.answerCallbackQuery(query.id);
+  }
+
+  if (query.data === 'main_admin') {
+    if (userId !== ADMIN_ID) return bot.answerCallbackQuery(query.id, { text: 'Нет доступа' });
+    let totalServers = 0;
+    chatState.forEach(c => totalServers += c.servers.length);
+    bot.sendMessage(chatId, `👮‍ Админ панель\nЧатов: ${chatState.size}\nВсего серверов: ${totalServers}`);
+    return bot.answerCallbackQuery(query.id);
+  }
+
+  // Выбор конкретного сервера
   if (query.data.startsWith('show_')) {
     const idx = Number(query.data.split('_')[1]);
     await sendServerInfo(chatId, idx);
     return bot.answerCallbackQuery(query.id);
   }
 
+  // Обновление сервера
   if (query.data.startsWith('refresh_')) {
     const idx = Number(query.data.split('_')[1]);
     await sendServerInfo(chatId, idx);
