@@ -1,7 +1,7 @@
 // index.js
 const TelegramBot = require('node-telegram-bot-api');
 const Gamedig = require('gamedig');
-const config = require('./config'); // { token, serverList }
+const config = require('./config');
 
 const ADMIN_ID = 123456789; // <- Замените на свой Telegram ID
 
@@ -69,7 +69,7 @@ function formatServerMessage(server) {
   return text;
 }
 
-// Кнопки inline для конкретного сервера
+// Inline кнопки под сервером
 function getServerButtons(serverIndex) {
   return {
     inline_keyboard: [
@@ -99,7 +99,7 @@ async function sendServerInfo(chatId, serverIndex) {
 function sendMainMenu(chatId, userId) {
   chatState.set(chatId, { servers: [...config.serverList] });
 
-  let buttons = [['🎮 Сервера', '➕ Добавить сервер'], ['ℹ️ О боте']];
+  const buttons = [['🎮 Сервера', '➕ Добавить сервер'], ['ℹ️ О боте']];
   if (userId === ADMIN_ID) buttons.push(['🛠 Админ']);
 
   bot.sendMessage(chatId, '🎮 CS 1.6 Bot\nВыберите действие:', {
@@ -110,7 +110,7 @@ function sendMainMenu(chatId, userId) {
 // /start
 bot.onText(/\/start/, msg => sendMainMenu(msg.chat.id, msg.from.id));
 
-// Обработка текста с клавиатуры
+// Обработка текстовой клавиатуры
 bot.on('message', msg => {
   const chatId = msg.chat.id;
   if (!chatState.has(chatId)) chatState.set(chatId, { servers: [...config.serverList] });
@@ -154,6 +154,8 @@ bot.on('message', msg => {
 bot.on('callback_query', async query => {
   const chatId = query.message.chat.id;
   const state = chatState.get(chatId);
+
+  if (!state) return bot.answerCallbackQuery(query.id);
 
   if (query.data.startsWith('show_')) {
     const idx = Number(query.data.split('_')[1]);
