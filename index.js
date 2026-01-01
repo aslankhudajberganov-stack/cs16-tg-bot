@@ -1,25 +1,33 @@
 const TelegramBot = require('node-telegram-bot-api');
 const Gamedig = require('gamedig');
-const config = require('./config'); // { token: process.env.BOT_TOKEN, serverList: [] }
+const config = require('./config');
 
 const bot = new TelegramBot(config.token, { polling: true });
+console.log('🤖 Бот запущен');
 
-console.log('🤖 Бот запущен и ждёт команд...');
+// ===== СОСТОЯНИЕ ЧАТОВ =====
+const chats = {}; 
+// chats[chatId] = { servers: [], mode: null }
 
-// ======== СЕРВЕРЫ ========
-let servers = config.serverList || [];
-
-// ======== Экранирование HTML ========
-function escapeHTML(text) {
-  if (!text) return '';
-  return text.replace(/&/g, '&amp;')
-             .replace(/</g, '&lt;')
-             .replace(/>/g, '&gt;')
-             .replace(/"/g, '&quot;')
-             .replace(/'/g, '&#039;');
+// ===== HELPERS =====
+function getChat(chatId) {
+  if (!chats[chatId]) {
+    chats[chatId] = {
+      servers: [...config.serverList],
+      mode: null
+    };
+  }
+  return chats[chatId];
 }
 
-// ======== Получение данных сервера через Gamedig ========
+function escapeHTML(text = '') {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+// ===== SERVER QUERY =====
 async function fetchServerData(server) {
   try {
     const state = await Gamedig.query({
@@ -36,110 +44,146 @@ async function fetchServerData(server) {
       score: p.score || 0,
       time: Math.floor((p.time || 0) / 60)
     }));
-  } catch (err) {
-    console.log(`Ошибка получения данных с ${server.host}:${server.port}`, err);
-    server.players = [];
+  } catch {
     server.name = 'Сервер недоступен';
     server.map = '-';
     server.maxPlayers = 0;
+    server.players = [];
   }
 }
 
-// ======== Формат сообщения ========
-function formatServerMessage(server) {
-  let occupancy = server.players.length && server.maxPlayers
-                  ? Math.round((server.players.length / server.maxPlayers) * 100)
-                  : 0;
-
+// ===== FORMAT =====
+function formatServer(server) {
   let text = `<b>${escapeHTML(server.name)}</b>\n`;
-  text += `🗺 <b>Карта:</b> ${escapeHTML(server.map)}\n`;
-  text += `📊 <b>Игроки:</b> ${server.players.length} (~${occupancy}% загрузка)\n`;
-  text += `⭐ <b>Макс. игроков:</b> ${server.maxPlayers}\n\n`;
-  text += `<b>Список игроков:</b>\n`;
-  server.players.forEach((p, i) => {
-    text += `${i+1}. <b>${escapeHTML(p.name)}</b> | <u>${p.score}</u> | <i>${p.time} мин.</i>\n`;
-  });
+  text += `🗺 Карта: ${escapeHTML(server.map)}\n`;
+  text += `👥 Игроки: ${server.players.length}/${server.maxPlayers}\n\n`;
+
+  if (server.players.length) {
+    server.players.forEach((p, i) => {
+      text += `${i + 1}. ${escapeHTML(p.name)} | ${p.score} | ${p.time} мин\n`;
+    });
+  } else {
+    text += 'Нет игроков';
+  }
+
   return text;
 }
 
-// ======== Кнопки под сообщением ========
-function getServerButtons(serverIndex) {
+// ===== MENUS =====
+function mainMenu() {
   return {
     inline_keyboard: [
-      [
-        { text: '🔄 Обновить', callback_data: `refresh_${serverIndex}` },
-        { text: '⭐ В избранное', callback_data: `favorite_${serverIndex}` }
-      ],
-      [
-        { text: '➕ Добавить сервер', callback_data: 'add_server' },
-        { text: '📤 Поделиться ботом', url: 'https://t.me/YourBotUsername' }
-      ]
+      [{ text: '🎮 Сервера', callback_data: 'menu_servers' }],
+      [{ text: '➕ Добавить сервер', callback_data: 'add_server' }],
+      [{ text: '📤 Поделиться', url: 'https://t.me/YourBotUsername' }]
     ]
   };
 }
 
-// ======== Отправка инфо о сервере ========
-async function sendServerInfo(chatId, serverIndex) {
-  if (!servers[serverIndex]) return;
-
-  await fetchServerData(servers[serverIndex]);
-  bot.sendMessage(chatId, formatServerMessage(servers[serverIndex]), {
-    parse_mode: 'HTML',
-    reply_markup: getServerButtons(serverIndex)
-  });
+function serverButtons(index) {
+  return {
+    inline_keyboard: [
+      [{ text: '🔄 Обновить', callback_data: `refresh_${index}` }],
+      [{ text: '⬅️ Назад', callback_data: 'back' }]
+    ]
+  };
 }
 
-// ======== Команды ========
-
-// /start
+// ===== COMMANDS =====
 bot.onText(/\/start/, (msg) => {
-  bot.sendMessage(msg.chat.id,
-    `Привет! 🤖\nВыберите сервер из списка или добавьте новый.`,
-    { reply_markup: { inline_keyboard: [
-      [{ text: '➕ Добавить сервер', callback_data: 'add_server' }]
-    ] } }
-  );
+  getChat(msg.chat.id);
+  bot.sendMessage(msg.chat.id, 'Главное меню:', {
+    reply_markup: mainMenu()
+  });
 });
 
-// /server - показывает первый сервер
-bot.onText(/\/server/, (msg) => {
-  if (!servers.length) {
-    bot.sendMessage(msg.chat.id, 'Список серверов пуст. Добавьте сервер через кнопку ➕ Добавить сервер.');
-    return;
-  }
-  sendServerInfo(msg.chat.id, 0);
-});
+// ===== CALLBACKS =====
+bot.on('callback_query', async (q) => {
+  const chatId = q.message.chat.id;
+  const chat = getChat(chatId);
+  const data = q.data;
 
-// ======== Обработка кнопок ========
-bot.on('callback_query', async (query) => {
-  const chatId = query.message.chat.id;
-
-  // Обновление сервера
-  if (query.data.startsWith('refresh_')) {
-    const idx = parseInt(query.data.split('_')[1]);
-    await sendServerInfo(chatId, idx);
+  // Назад
+  if (data === 'back') {
+    bot.editMessageText('Главное меню:', {
+      chat_id: chatId,
+      message_id: q.message.message_id,
+      reply_markup: mainMenu()
+    });
     return;
   }
 
-  // В избранное
-  if (query.data.startsWith('favorite_')) {
-    const idx = parseInt(query.data.split('_')[1]);
-    bot.answerCallbackQuery(query.id, { text: `Сервер "${servers[idx].name}" добавлен в избранное!` });
+  // Список серверов
+  if (data === 'menu_servers') {
+    const buttons = chat.servers.map((s, i) => ([
+      { text: `${s.host}:${s.port}`, callback_data: `show_${i}` }
+    ]));
+    buttons.push([{ text: '⬅️ Назад', callback_data: 'back' }]);
+
+    bot.editMessageText('Сервера:', {
+      chat_id: chatId,
+      message_id: q.message.message_id,
+      reply_markup: { inline_keyboard: buttons }
+    });
+    return;
+  }
+
+  // Показ сервера
+  if (data.startsWith('show_')) {
+    const i = Number(data.split('_')[1]);
+    await fetchServerData(chat.servers[i]);
+
+    bot.editMessageText(formatServer(chat.servers[i]), {
+      chat_id: chatId,
+      message_id: q.message.message_id,
+      parse_mode: 'HTML',
+      reply_markup: serverButtons(i)
+    });
+    return;
+  }
+
+  // Обновить сервер
+  if (data.startsWith('refresh_')) {
+    const i = Number(data.split('_')[1]);
+    await fetchServerData(chat.servers[i]);
+
+    bot.editMessageText(formatServer(chat.servers[i]), {
+      chat_id: chatId,
+      message_id: q.message.message_id,
+      parse_mode: 'HTML',
+      reply_markup: serverButtons(i)
+    });
     return;
   }
 
   // Добавить сервер
-  if (query.data === 'add_server') {
-    bot.sendMessage(chatId, 'Отправьте IP и порт нового сервера в формате: 46.174.55.32:27015');
-    bot.once('message', (msg) => {
-      const [host, port] = msg.text.split(':');
-      if (!host || !port) {
-        bot.sendMessage(chatId, 'Неверный формат! Попробуйте снова.');
-        return;
-      }
-      servers.push({ host: host.trim(), port: parseInt(port) });
-      bot.sendMessage(chatId, `Сервер ${host}:${port} добавлен!`);
-    });
+  if (data === 'add_server') {
+    chat.mode = 'add_server';
+    bot.sendMessage(chatId, 'Введи IP:PORT сервера\nПример: 46.174.55.32:27015');
     return;
   }
+});
+
+// ===== MESSAGE INPUT =====
+bot.on('message', async (msg) => {
+  const chat = getChat(msg.chat.id);
+  if (chat.mode !== 'add_server') return;
+
+  chat.mode = null;
+
+  const [host, port] = msg.text.split(':');
+  if (!host || !port) {
+    bot.sendMessage(msg.chat.id, '❌ Неверный формат');
+    return;
+  }
+
+  const server = { host: host.trim(), port: Number(port) };
+  chat.servers.push(server);
+
+  await fetchServerData(server);
+
+  bot.sendMessage(msg.chat.id, formatServer(server), {
+    parse_mode: 'HTML',
+    reply_markup: serverButtons(chat.servers.length - 1)
+  });
 });
