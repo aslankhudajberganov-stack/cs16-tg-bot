@@ -1,7 +1,7 @@
 module.exports = {
-  token: '8511940561:AAGaTNPestkt4sM_Ig8fuKazwgX64AVVjNw',
-  server: {
-    host: '46.174.55.32',
-    port: 27015
-  }
+  token: process.env.BOT_TOKEN,
+  serverList: [
+    { host: '46.174.55.32', port: 27015 },
+    { host: '62.122.213.153', port: 27015 }
+  ]
 };
