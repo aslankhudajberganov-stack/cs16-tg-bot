@@ -3,7 +3,7 @@ const TelegramBot = require('node-telegram-bot-api');
 const Gamedig = require('gamedig');
 const config = require('./config'); // { token, serverList }
 
-const ADMIN_ID = 123456789; // <- замени на свой Telegram ID
+const ADMIN_ID = 123456789; // <- Замените на свой Telegram ID
 
 const bot = new TelegramBot(config.token, { polling: true });
 console.log('🤖 Бот запущен...');
@@ -11,7 +11,7 @@ console.log('🤖 Бот запущен...');
 // Состояние каждого чата
 const chatState = new Map();
 
-// Кэширование серверов (для авто-обновления)
+// Кэширование серверов
 const serverCache = new Map();
 
 // HTML escape
@@ -53,39 +53,33 @@ async function fetchServerData(server) {
   }
 }
 
-// Формат сообщения сервера
+// Формат сообщения сервера + список игроков
 function formatServerMessage(server) {
   const occupancy = server.maxPlayers ? Math.round((server.players.length / server.maxPlayers)*100) : 0;
   let text = `<b>${escapeHTML(server.name)}</b>\n`;
   text += `🗺 <b>Карта:</b> ${escapeHTML(server.map)}\n`;
   text += `📊 <b>Игроки:</b> ${server.players.length} (~${occupancy}% загрузка)\n`;
   text += `⭐ <b>Макс. игроков:</b> ${server.maxPlayers}\n`;
-  text += `⚡ <b>Статус:</b> ${server.status}\n`;
-  return text;
-}
+  text += `⚡ <b>Статус:</b> ${server.status}\n\n`;
 
-// Формат топ-10 игроков
-function formatTopPlayers(server) {
-  if (!server.players.length) {
-    return `⚠️ Игроки не доступны (UDP может быть заблокирован на бесплатной платформе)`;
+  if (server.players.length > 0) {
+    text += `<b>Список игроков:</b>\n`;
+    server.players.forEach((p,i) => {
+      text += `${i+1}. <b>${escapeHTML(p.name)}</b> | <u>${p.score}</u> | <i>${p.time} мин.</i>\n`;
+    });
+  } else {
+    text += `⚠️ Игроки не доступны (UDP может быть заблокирован на бесплатной платформе)`;
   }
 
-  let text = `<b>Топ ${Math.min(10, server.players.length)} игроков:</b>\n`;
-  server.players.slice(0,10).forEach((p,i) => {
-    text += `${i+1}. <b>${escapeHTML(p.name)}</b> | <u>${p.score}</u> | <i>${p.time} мин.</i>\n`;
-  });
   return text;
 }
 
-// Кнопки для конкретного сервера
+// Кнопки для сервера
 function getServerButtons(serverIndex) {
   return {
     inline_keyboard: [
       [
         { text: '🔄 Обновить', callback_data: `refresh_${serverIndex}` },
-        { text: '🏆 Топ-10 игроков', callback_data: `top_${serverIndex}` }
-      ],
-      [
         { text: '📤 Поделиться', switch_inline_query: '' }
       ]
     ]
@@ -100,7 +94,7 @@ async function sendServerInfo(chatId, serverIndex) {
   const server = state.servers[serverIndex];
   await fetchServerData(server);
 
-  serverCache.set(`${chatId}_${serverIndex}`, server); // кешируем
+  serverCache.set(`${chatId}_${serverIndex}`, server);
 
   bot.sendMessage(chatId, formatServerMessage(server), {
     parse_mode: 'HTML',
@@ -110,15 +104,20 @@ async function sendServerInfo(chatId, serverIndex) {
 
 // /start
 bot.onText(/\/start/, msg => {
-  chatState.set(msg.chat.id, { servers: [...config.serverList] });
+  const chatId = msg.chat.id;
+  chatState.set(chatId, { servers: [...config.serverList] });
 
-  bot.sendMessage(msg.chat.id,
+  let buttons = [['🎮 Сервера', '➕ Добавить сервер'], ['ℹ️ О боте']];
+  // Админ-кнопка только для ADMIN
+  if (msg.from.id === ADMIN_ID) buttons.push(['🛠 Админ']);
+
+  bot.sendMessage(chatId,
     '🎮 CS 1.6 Bot\nВыберите действие:',
-    { reply_markup: { keyboard: [['🎮 Сервера', '➕ Добавить сервер'], ['ℹ️ О боте']], resize_keyboard: true } }
+    { reply_markup: { keyboard: buttons, resize_keyboard: true } }
   );
 });
 
-// Текстовые кнопки
+// Обработка текстовых кнопок
 bot.on('message', msg => {
   const chatId = msg.chat.id;
   if (!chatState.has(chatId)) chatState.set(chatId, { servers: [...config.serverList] });
@@ -142,10 +141,9 @@ bot.on('message', msg => {
 
   if (msg.text === 'ℹ️ О боте') {
     bot.sendMessage(chatId,
-      `CS 1.6 Telegram Bot\nВерсия: 1.0.0\nФункции: просмотр серверов, онлайн, карта, топ-10 игроков (если UDP доступен)`);
+      `CS 1.6 Telegram Bot\nВерсия: 1.0.0\nФункции: просмотр серверов, онлайн, карта, список игроков (если UDP доступен)`);
   }
 
-  // Админская кнопка
   if (msg.text === '🛠 Админ') {
     if (msg.from.id !== ADMIN_ID) return;
     const totalChats = chatState.size;
@@ -171,13 +169,5 @@ bot.on('callback_query', async query => {
     const idx = Number(query.data.split('_')[1]);
     await sendServerInfo(chatId, idx);
     return bot.answerCallbackQuery(query.id, { text: 'Обновлено' });
-  }
-
-  if (query.data.startsWith('top_')) {
-    const idx = Number(query.data.split('_')[1]);
-    const server = serverCache.get(`${chatId}_${idx}`);
-    if (!server) return bot.answerCallbackQuery(query.id, { text: 'Сначала обновите сервер' });
-    bot.sendMessage(chatId, formatTopPlayers(server), { parse_mode: 'HTML' });
-    return bot.answerCallbackQuery(query.id);
   }
 });
