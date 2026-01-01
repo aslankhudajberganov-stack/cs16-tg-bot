@@ -1,15 +1,11 @@
 {
   "name": "cs16-tg-bot",
   "version": "1.0.0",
-  "description": "Telegram bot для мониторинга CS 1.6 сервера",
+  "description": "Telegram bot для CS 1.6",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node index.js"
   },
-  "keywords": [],
-  "author": "Aslan",
-  "license": "ISC",
   "type": "commonjs",
   "dependencies": {
     "gamedig": "^4.3.2",
