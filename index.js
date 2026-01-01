@@ -1,14 +1,19 @@
-const functions = require('firebase-functions');
 const TelegramBot = require('node-telegram-bot-api');
-const dgram = require('dgram');
 
-const TOKEN = 'ТВОЙ_ТОКЕН'; // <-- вставь токен своего бота
-const bot = new TelegramBot(TOKEN, { polling: false });
+// Берём токен из Environment
+const TOKEN = process.env.BOT_TOKEN;
+if (!TOKEN) {
+  console.error("❌ BOT_TOKEN не найден! Добавь в Environment переменные.");
+  process.exit(1);
+}
 
+const bot = new TelegramBot(TOKEN, { polling: true });
+
+// Настройки сервера CS 1.6
 const SERVER_HOST = '46.174.55.32';
 const SERVER_PORT = 27015;
 
-// Экранирование HTML
+// Экранирование HTML для Telegram
 function escapeHTML(text) {
   if (!text) return '';
   return text
@@ -19,20 +24,30 @@ function escapeHTML(text) {
     .replace(/'/g, '&#039;');
 }
 
-// Простейший пример получения информации и игроков
+// Пример получения информации о сервере
 async function getServerInfo(host, port) {
-  // Здесь можно расширить запрос UDP
-  return `Название сервера: SPIRIT [CLASSIC]\nКарта: SPIRIT`;
+  try {
+    // Здесь можно подключить Gamedig или UDP-запрос
+    return `Название сервера: SPIRIT [CLASSIC]\nКарта: SPIRIT`;
+  } catch(err) {
+    console.error(err);
+    return "❌ Сервер недоступен";
+  }
 }
 
+// Пример списка игроков
 async function getPlayers(host, port) {
-  // Пример списка игроков
-  return [
-    { name: 'WZ l FranK', score: 5, time: '8 мин.' },
-    { name: 'DREDD 08 18', score: 19, time: '19 мин.' },
-    { name: 'gg 2', score: 5, time: '5 мин.' },
-    { name: 'PETROS 040', score: 0, time: '3 мин.' },
-  ];
+  try {
+    return [
+      { name: 'WZ l FranK', score: 5, time: '8 мин.' },
+      { name: 'DREDD 08 18', score: 19, time: '19 мин.' },
+      { name: 'gg 2', score: 5, time: '5 мин.' },
+      { name: 'PETROS 040', score: 0, time: '3 мин.' },
+    ];
+  } catch(err) {
+    console.error(err);
+    return [];
+  }
 }
 
 // Форматирование сообщения с цветами
@@ -45,17 +60,6 @@ function formatMessage(info, players) {
   });
   return text;
 }
-
-// Webhook для Firebase
-exports.telegramBot = functions.https.onRequest(async (req, res) => {
-  try {
-    await bot.processUpdate(req.body);
-    res.sendStatus(200);
-  } catch (err) {
-    console.error(err);
-    res.sendStatus(500);
-  }
-});
 
 // Команда /server
 bot.onText(/\/server/, async (msg) => {
@@ -74,12 +78,16 @@ bot.onText(/\/server/, async (msg) => {
   }
 });
 
-// Кнопка обновления
+// Кнопка "Обновить сервер"
 bot.on('callback_query', async (query) => {
   if (query.data === 'refresh') {
     const chatId = query.message.chat.id;
-    const info = await getServerInfo(SERVER_HOST, SERVER_PORT);
-    const players = await getPlayers(SERVER_HOST, SERVER_PORT);
-    await bot.sendMessage(chatId, formatMessage(info, players), { parse_mode: 'HTML' });
+    try {
+      const info = await getServerInfo(SERVER_HOST, SERVER_PORT);
+      const players = await getPlayers(SERVER_HOST, SERVER_PORT);
+      await bot.sendMessage(chatId, formatMessage(info, players), { parse_mode: 'HTML' });
+    } catch(err) {
+      await bot.sendMessage(chatId, `❌ Сервер недоступен\n${err}`);
+    }
   }
 });
