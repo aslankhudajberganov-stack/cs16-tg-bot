@@ -7,17 +7,19 @@ const RAILWAY_URL = process.env.RAILWAY_STATIC_URL || '';
 
 if (!TOKEN) throw new Error('BOT_TOKEN не задан!');
 
-const bot = RAILWAY_URL
-  ? new TelegramBot(TOKEN, { webHook: true })
-  : new TelegramBot(TOKEN, { polling: true });
+// ===== Настройка бота: polling локально, webhook на Railway =====
+let bot;
 
 if (RAILWAY_URL) {
+  bot = new TelegramBot(TOKEN, { webHook: true });
   bot.setWebHook(`${RAILWAY_URL}/bot${TOKEN}`);
   console.log('🤖 Бот запущен через Webhook на Railway!');
 } else {
-  console.log('🤖 Бот запущен в режиме polling (локальный запуск)');
+  bot = new TelegramBot(TOKEN, { polling: true });
+  bot.deleteWebHook().then(() => console.log('🤖 Webhook удалён, бот запущен локально через polling'));
 }
 
+// ===== Переменные =====
 const servers = config.servers;
 const admins = config.admins;
 const users = new Map();
@@ -25,6 +27,7 @@ const banned = new Set();
 
 const esc = t => t ? t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') : '';
 
+// ===== Функция запроса сервера =====
 async function queryServer(server) {
   try {
     const s = await Gamedig.query({ type: 'cs16', host: server.host, port: server.port });
@@ -44,7 +47,7 @@ async function queryServer(server) {
   }
 }
 
-// ===== Reply и Inline клавиатуры =====
+// ===== Клавиатуры =====
 const startKeyboard = { keyboard: [[{ text: '▶️ Старт' }]], resize_keyboard: true, one_time_keyboard: true };
 
 function mainKeyboard(isAdmin) {
@@ -68,7 +71,6 @@ function adminKeyboard() {
 
 // ===== Пользователи =====
 function addUser(obj) {
-  // Поддержка msg и callback_query
   const from = obj?.from;
   if (!from) return false;
 
@@ -95,7 +97,7 @@ bot.on('message', async msg => {
   addUser(msg);
   if (!text) return;
 
-  // ===== Главные кнопки =====
+  // ===== Главное меню =====
   if (text === '▶️ Старт') return bot.sendMessage(chatId, 'Главное меню:', { reply_markup: mainKeyboard(isAdmin) });
 
   if (text === 'ℹ️ О боте') {
