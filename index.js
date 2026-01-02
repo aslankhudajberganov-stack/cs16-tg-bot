@@ -50,7 +50,7 @@ const startKeyboard = { keyboard: [[{ text: '▶️ Старт' }]], resize_keyb
 function mainKeyboard(isAdmin) {
   const rows = [
     ['🎮 Сервера', '➕ Добавить сервер'],
-    ['ℹ️ О боте']
+    ['ℹ️ О боте', '📤 Поделиться ботом']
   ];
   if (isAdmin) rows.push(['🛠 Админ']);
   return { keyboard: rows, resize_keyboard: true };
@@ -68,6 +68,7 @@ function adminKeyboard() {
 
 // ===== /start =====
 bot.onText(/\/start/, msg => {
+  users.add(msg.from.id);
   bot.sendMessage(msg.chat.id, 'Добро пожаловать 👋', {
     reply_markup: startKeyboard
   });
@@ -82,6 +83,7 @@ bot.on('message', async msg => {
   // Добавляем пользователя в хранилище
   users.add(msg.from.id);
 
+  // -------- Главные кнопки --------
   if (text === '▶️ Старт') {
     return bot.sendMessage(chatId, 'Главное меню:', {
       reply_markup: mainKeyboard(isAdmin)
@@ -91,7 +93,14 @@ bot.on('message', async msg => {
   if (text === 'ℹ️ О боте') {
     return bot.sendMessage(
       chatId,
-      '🤖 CS 1.6 Bot\n\nПоказывает:\n• имя сервера\n• карту\n• онлайн\n• список игроков\n\nРаботает 24/7 бесплатно',
+      '🤖 CS 1.6 Bot\n\nПоказывает:\n• имя сервера\n• карту\n• онлайн/макс игроков\n• список игроков\n\nРаботает 24/7 бесплатно',
+      { reply_markup: mainKeyboard(isAdmin) }
+    );
+  }
+
+  if (text === '📤 Поделиться ботом') {
+    return bot.sendMessage(chatId,
+      `🤖 Поделитесь ботом с друзьями или в группе:\nhttps://t.me/ВАШ_BOT_USERNAME`,
       { reply_markup: mainKeyboard(isAdmin) }
     );
   }
@@ -128,7 +137,7 @@ bot.on('message', async msg => {
     });
   }
 
-  // Админ-панель
+  // -------- Админ-панель --------
   if (text === '🛠 Админ' && isAdmin) {
     return bot.sendMessage(chatId, 'Админ-панель:', { reply_markup: adminKeyboard() });
   }
@@ -157,6 +166,9 @@ bot.on('message', async msg => {
 bot.on('callback_query', async q => {
   const chatId = q.message.chat.id;
   const data = q.data;
+
+  // Добавляем пользователя в хранилище
+  users.add(q.from.id);
 
   if (data === 'back_servers') {
     const inline = servers.map((s, i) => ([
