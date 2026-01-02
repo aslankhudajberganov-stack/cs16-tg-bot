@@ -66,9 +66,14 @@ function adminKeyboard() {
   };
 }
 
+// ===== Добавление пользователя в хранилище =====
+function addUser(id) {
+  if (id) users.add(id);
+}
+
 // ===== /start =====
 bot.onText(/\/start/, msg => {
-  users.add(msg.from.id);
+  addUser(msg.from.id);
   bot.sendMessage(msg.chat.id, 'Добро пожаловать 👋', {
     reply_markup: startKeyboard
   });
@@ -80,8 +85,7 @@ bot.on('message', async msg => {
   const text = msg.text;
   const isAdmin = admins.includes(msg.from.id);
 
-  // Добавляем пользователя в хранилище
-  users.add(msg.from.id);
+  addUser(msg.from.id);
 
   // -------- Главные кнопки --------
   if (text === '▶️ Старт') {
@@ -130,8 +134,12 @@ bot.on('message', async msg => {
           reply_markup: mainKeyboard(isAdmin)
         });
       }
-      servers.push({ host, port: Number(port), name: name || `Сервер ${servers.length+1}` });
-      bot.sendMessage(chatId, '✅ Сервер добавлен', {
+      servers.push({
+        host: host.trim(),
+        port: Number(port),
+        name: name?.trim() || `Сервер ${servers.length + 1}`
+      });
+      bot.sendMessage(chatId, `✅ Сервер добавлен: ${servers[servers.length-1].name}`, {
         reply_markup: mainKeyboard(isAdmin)
       });
     });
@@ -146,7 +154,7 @@ bot.on('message', async msg => {
     return bot.sendMessage(chatId,
       `📊 Статистика бота:\n` +
       `• Серверов: ${servers.length}\n` +
-      `• Пользователей: ${users.size}\n`,
+      `• Пользователей: ${users.size}`,
       { reply_markup: adminKeyboard() }
     );
   }
@@ -167,8 +175,7 @@ bot.on('callback_query', async q => {
   const chatId = q.message.chat.id;
   const data = q.data;
 
-  // Добавляем пользователя в хранилище
-  users.add(q.from.id);
+  addUser(q.from.id);
 
   if (data === 'back_servers') {
     const inline = servers.map((s, i) => ([
