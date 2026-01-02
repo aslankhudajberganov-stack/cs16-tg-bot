@@ -96,7 +96,7 @@ bot.on('message', async msg => {
   }
 
   if (text === '📤 Поделиться ботом') {
-    return bot.sendPhoto(chatId, 'https://i.imgur.com/YourImage.png', {
+    return bot.sendPhoto(chatId, 'https://i.postimg.cc/ZRj839L0/images.jpg', {
       caption: `🤖 *CS 1.6 Bot*\n\nПоказывает сервера CS 1.6, онлайн игроков и карты.\n\nПоделитесь ботом с друзьями или в группе!`,
       parse_mode: 'Markdown',
       reply_markup: {
@@ -118,10 +118,8 @@ bot.on('message', async msg => {
     bot.sendMessage(chatId, 'Введите IP:PORT[:Name] (например 127.0.0.1:27015:Мой сервер)');
     bot.once('message', msg2 => {
       const [host, port, ...nameParts] = msg2.text.split(':');
-      if (!host || !port) {
-        return bot.sendMessage(chatId, 'Пожалуйста, отправьте IP и PORT в формате: 127.0.0.1:27015', { reply_markup: mainKeyboard(isAdmin) });
-      }
       const name = nameParts.join(':').trim() || `Сервер ${servers.length+1}`;
+      if (!host || !port) return bot.sendMessage(chatId, `Введите в формате: IP:PORT[:Name]`, { reply_markup: mainKeyboard(isAdmin) });
       servers.push({ host: host.trim(), port: Number(port), name });
       bot.sendMessage(chatId, `✅ Сервер добавлен: ${name}`, { reply_markup: mainKeyboard(isAdmin) });
     });
