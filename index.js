@@ -2,23 +2,36 @@ const TelegramBot = require('node-telegram-bot-api');
 const Gamedig = require('gamedig');
 const config = require('./config');
 
+// ===== Проверка переменных окружения =====
 const TOKEN = process.env.BOT_TOKEN;
 const RAILWAY_URL = process.env.RAILWAY_STATIC_URL;
 
-if (!TOKEN) throw new Error('BOT_TOKEN не задан!');
-if (!RAILWAY_URL) throw new Error('RAILWAY_STATIC_URL не задан!');
+if (!TOKEN) {
+  console.error('❌ Ошибка: BOT_TOKEN не задан! Установите переменную окружения BOT_TOKEN на Railway.');
+  process.exit(1);
+}
 
+if (!RAILWAY_URL) {
+  console.error('❌ Ошибка: RAILWAY_STATIC_URL не задан! Установите переменную окружения RAILWAY_STATIC_URL на Railway.');
+  process.exit(1);
+}
+
+// ===== Настройка бота через WebHook =====
 const bot = new TelegramBot(TOKEN, { webHook: true });
-bot.setWebHook(`${RAILWAY_URL}/bot${TOKEN}`);
-console.log('🤖 Бот запущен через WebHook на Railway!');
+bot.setWebHook(`${RAILWAY_URL}/bot${TOKEN}`)
+  .then(() => console.log('✅ Бот запущен через WebHook на Railway!'))
+  .catch(err => console.error('❌ Ошибка установки WebHook:', err));
 
+// ===== Настройка данных =====
 const servers = config.servers;
 const admins = config.admins;
 const users = new Map();
 const banned = new Set();
 
+// ===== Помощник для HTML экранирования =====
 const esc = t => t ? t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') : '';
 
+// ===== Функция запроса сервера =====
 async function queryServer(server) {
   try {
     const s = await Gamedig.query({ type: 'cs16', host: server.host, port: server.port });
@@ -125,62 +138,4 @@ bot.on('message', async msg => {
   }
 
   // ===== Админ-панель =====
-  if (text === '🛠 Админ' && isAdmin) return bot.sendMessage(chatId, 'Админ-панель:', { reply_markup: adminKeyboard() });
-
-  if (isAdmin && text === '📊 Статистика') return bot.sendMessage(chatId,
-    `📊 Статистика бота:\n• Серверов: ${servers.length}\n• Пользователей: ${users.size}\n• Забанено: ${banned.size}`, { reply_markup: adminKeyboard() });
-
-  if (isAdmin && text === '👥 Пользователи') {
-    const list = [...users.values()].map(u => u.username ? `@${u.username}` : u.first_name).join('\n');
-    return bot.sendMessage(chatId, `👥 Пользователи:\n${list || '— пока нет —'}`, { reply_markup: adminKeyboard() });
-  }
-
-  if (isAdmin && text === '⬅️ Назад') return bot.sendMessage(chatId, 'Главное меню:', { reply_markup: mainKeyboard(true) });
-
-  if (isAdmin && text === '🚫 Бан/Разбан') {
-    return bot.sendMessage(chatId,
-      'Отправьте команду:\n/ban @username\n/unban @username',
-      { reply_markup: adminKeyboard() }
-    );
-  }
-});
-
-// ===== Inline server info =====
-bot.on('callback_query', async q => {
-  const chatId = q.message.chat.id;
-  const data = q.data;
-  addUser(q);
-
-  if (data === 'back_servers') {
-    const inline = servers.map((s,i) => ([{ text: s.name, callback_data: `srv_${i}` }]));
-    return bot.editMessageText('Выберите сервер:', { chat_id: chatId, message_id: q.message.message_id, reply_markup: { inline_keyboard: inline } });
-  }
-
-  if (!data.startsWith('srv_')) return;
-
-  const id = Number(data.split('_')[1]);
-  const server = servers[id];
-  const info = await queryServer(server);
-
-  let text =
-    `🎮 <b>${esc(info.name)}</b>\n` +
-    `🗺 Карта: ${esc(info.map)}\n` +
-    `👥 Онлайн: ${info.players.length}/${info.max}\n` +
-    `✅ Статус: ${info.online ? 'ONLINE' : 'OFFLINE'}\n\n` +
-    `<b>Игроки:</b>\n`;
-
-  if (!info.players.length) text += '— пусто —';
-  else info.players.forEach((p,i) => { text += `${i+1}. ${esc(p.name)} | ${p.score} | ${p.time} мин\n`; });
-
-  bot.editMessageText(text, {
-    chat_id,
-    message_id: q.message.message_id,
-    parse_mode: 'HTML',
-    reply_markup: {
-      inline_keyboard: [
-        [{ text: '🔄 Обновить', callback_data: `srv_${id}` }],
-        [{ text: '⬅️ Назад к серверам', callback_data: 'back_servers' }]
-      ]
-    }
-  });
-});
+  if (text === '🛠 Админ' && isAdmin) return
