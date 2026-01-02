@@ -174,7 +174,7 @@ bot.on('callback_query', async q => {
 
   const id = Number(data.split('_')[1]);
   const server = servers[id];
-  const info = await queryServer(server);
+  const info = await queryServer(server); // Запрос к серверу через Gamedig
 
   if (!info.online) {
     return bot.editMessageText(`❌ Сервер OFFLINE: ${server.name}`, {
@@ -192,7 +192,9 @@ bot.on('callback_query', async q => {
     `<b>Игроки:</b>\n`;
 
   if (!info.players.length) text += '— пусто —';
-  else info.players.forEach((p,i) => { text += `${i+1}. ${esc(p.name)} | ${p.score} | ${p.time} мин\n`; });
+  else info.players.forEach((p,i) => { 
+    text += `${i+1}. ${esc(p.name)} | ${p.score} | ${p.time} мин\n`; 
+  });
 
   bot.editMessageText(text, {
     chat_id,
