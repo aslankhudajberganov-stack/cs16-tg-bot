@@ -28,6 +28,14 @@ function saveUserServers() {
   fs.writeFileSync(userServersFile, JSON.stringify(userServers, null, 2));
 }
 
+// ===== Пользователи =====
+const usersFile = path.join(__dirname, 'users.json');
+let users = [];
+if (fs.existsSync(usersFile)) users = JSON.parse(fs.readFileSync(usersFile, 'utf-8'));
+function saveUsers() {
+  fs.writeFileSync(usersFile, JSON.stringify(users, null, 2));
+}
+
 // ===== Utils =====
 const esc = t =>
   t ? t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') : '';
@@ -54,10 +62,10 @@ async function queryServer(server) {
 // ===== Keyboards =====
 function mainKeyboard(isAdmin) {
   const rows = [
-    ['🎮 Сервера', '➕ Добавить сервер'], // кнопка для серверов и добавления рядом
+    ['🎮 Сервера', '➕ Добавить сервер'],
     ['ℹ️ О боте', '📤 Поделиться ботом']
   ];
-  if (isAdmin) rows.push(['🛠 Админ']); // админ кнопка
+  if (isAdmin) rows.push(['🛠 Админ']);
   return { keyboard: rows, resize_keyboard: true };
 }
 
@@ -65,15 +73,17 @@ function mainKeyboard(isAdmin) {
 bot.on('message', async msg => {
   const chatId = msg.chat.id;
   const text = msg.text;
-  const isAdmin = admins.includes(msg.from.id);
+  const userId = msg.from.id;
+  const isAdmin = admins.includes(userId);
 
-  // Если пользователь пишет /start — сразу показываем главное меню
-  if (text === '/start') {
-    return bot.sendMessage(chatId, 'Добро пожаловать 👋\nГлавное меню:', { reply_markup: mainKeyboard(isAdmin) });
+  // Сохраняем пользователя при первом сообщении
+  if (!users.includes(userId)) {
+    users.push(userId);
+    saveUsers();
   }
 
-  if (text === '▶️ Старт') {
-    return bot.sendMessage(chatId, 'Главное меню:', { reply_markup: mainKeyboard(isAdmin) });
+  if (text === '/start' || text === '▶️ Старт') {
+    return bot.sendMessage(chatId, 'Добро пожаловать 👋\nГлавное меню:', { reply_markup: mainKeyboard(isAdmin) });
   }
 
   if (text === '🎮 Сервера') {
@@ -105,11 +115,12 @@ bot.on('message', async msg => {
     return bot.sendMessage(chatId, '📎 Поделись ботом с друзьями: t.me/ТВОЙ_БОТ_ЮЗЕРНЕЙМ', { reply_markup: mainKeyboard(isAdmin) });
   }
 
+  // ===== Админ =====
   if (text === '🛠 Админ' && isAdmin) {
     const inline = [
-      [{ text: '📊 Статистика серверов', callback_data: 'admin_stats' }],
-      [{ text: '🚫 Бан игрока', callback_data: 'admin_ban' }],
-      [{ text: '✅ Разбан игрока', callback_data: 'admin_unban' }]
+      [{ text: '📊 Статистика бота', callback_data: 'admin_stats' }],
+      [{ text: '❌ Удалить пользователя', callback_data: 'admin_remove_user' }],
+      [{ text: '🗑️ Пользовательские серверы', callback_data: 'admin_user_servers' }]
     ];
     return bot.sendMessage(chatId, '🛠 Админ-панель:', { reply_markup: { inline_keyboard: inline } });
   }
@@ -165,38 +176,36 @@ bot.on('callback_query', async q => {
 
   if (!isAdmin) return;
 
+  // ===== Админ: статистика бота =====
   if (data === 'admin_stats') {
-    let text = '📊 Статистика серверов:\n\n';
-    for (let s of allServers) {
-      const info = await queryServer(s);
-      const online = info.online ? '✅ Online' : '❌ Offline';
-      const players = info.players ? info.players.length : 0;
-      text += `${s.name}: ${online} | Игроков: ${players}\n`;
-    }
+    const text = `📊 Статистика бота:\n\n👥 Пользователей: ${users.length}\n🎮 Всего серверов: ${servers.length + userServers.length}`;
     return bot.editMessageText(text, { chat_id: chatId, message_id: q.message.message_id });
   }
 
-  if (data === 'admin_ban') {
-    bot.sendMessage(chatId, 'Введите ник игрока для бана:');
+  // ===== Админ: удалить пользователя =====
+  if (data === 'admin_remove_user') {
+    bot.sendMessage(chatId, 'Введите ID пользователя для удаления:');
     bot.once('message', msg => {
-      const name = msg.text.trim();
-      if (!bans.includes(name)) {
-        bans.push(name);
-        saveBans();
-        bot.sendMessage(chatId, `✅ Игрок "${name}" забанен`);
-      } else bot.sendMessage(chatId, `❌ Игрок "${name}" уже в бане`);
+      const uid = Number(msg.text.trim());
+      if (!users.includes(uid)) return bot.sendMessage(chatId, '❌ Пользователь не найден');
+      users = users.filter(u => u !== uid);
+      saveUsers();
+      bot.sendMessage(chatId, `✅ Пользователь ${uid} удален`);
     });
   }
 
-  if (data === 'admin_unban') {
-    bot.sendMessage(chatId, 'Введите ник игрока для разбана:');
-    bot.once('message', msg => {
-      const name = msg.text.trim();
-      if (bans.includes(name)) {
-        bans = bans.filter(n => n !== name);
-        saveBans();
-        bot.sendMessage(chatId, `✅ Игрок "${name}" разбанен`);
-      } else bot.sendMessage(chatId, `❌ Игрок "${name}" не в бане`);
-    });
+  // ===== Админ: управление пользовательскими серверами =====
+  if (data === 'admin_user_servers') {
+    if (!userServers.length) return bot.sendMessage(chatId, '❌ Пользовательских серверов нет');
+    const inline = userServers.map((s, i) => [{ text: s.name, callback_data: `del_srv_${i}` }]);
+    return bot.sendMessage(chatId, 'Выберите сервер для удаления:', { reply_markup: { inline_keyboard: inline } });
+  }
+
+  if (data.startsWith('del_srv_')) {
+    const id = Number(data.split('_')[2]);
+    const server = userServers[id];
+    userServers.splice(id, 1);
+    saveUserServers();
+    return bot.editMessageText(`✅ Сервер "${server.name}" удален`, { chat_id: chatId, message_id: q.message.message_id });
   }
 });
