@@ -8,7 +8,6 @@ const RAILWAY_URL = process.env.RAILWAY_STATIC_URL;
 if (!TOKEN) throw new Error('BOT_TOKEN не задан!');
 if (!RAILWAY_URL) throw new Error('RAILWAY_STATIC_URL не задан!');
 
-// Используем webhook
 const bot = new TelegramBot(TOKEN);
 bot.setWebHook(`${RAILWAY_URL}/bot${TOKEN}`);
 
@@ -40,7 +39,7 @@ async function queryServer(server) {
   }
 }
 
-// ===== Кнопки =====
+// ===== Reply и Inline клавиатуры =====
 const startKeyboard = { keyboard: [[{ text: '▶️ Старт' }]], resize_keyboard: true, one_time_keyboard: true };
 
 function mainKeyboard(isAdmin) {
@@ -85,7 +84,6 @@ bot.on('message', async msg => {
   const isAdmin = admins.includes(msg.from?.id);
 
   addUser(msg);
-
   if (!text) return;
 
   // ===== Главные кнопки =====
