@@ -2,36 +2,36 @@ const TelegramBot = require('node-telegram-bot-api');
 const Gamedig = require('gamedig');
 const config = require('./config');
 
-// ===== Проверка переменных окружения =====
+// ===== Переменные окружения =====
 const TOKEN = process.env.BOT_TOKEN;
 const RAILWAY_URL = process.env.RAILWAY_STATIC_URL;
 
 if (!TOKEN) {
-  console.error('❌ Ошибка: BOT_TOKEN не задан! Установите переменную окружения BOT_TOKEN на Railway.');
+  console.error('❌ Ошибка: BOT_TOKEN не задан! Установите переменную BOT_TOKEN на Railway.');
   process.exit(1);
 }
 
 if (!RAILWAY_URL) {
-  console.error('❌ Ошибка: RAILWAY_STATIC_URL не задан! Установите переменную окружения RAILWAY_STATIC_URL на Railway.');
+  console.error('❌ Ошибка: RAILWAY_STATIC_URL не задан! Установите переменную RAILWAY_STATIC_URL на Railway.');
   process.exit(1);
 }
 
-// ===== Настройка бота через WebHook =====
+// ===== WebHook =====
 const bot = new TelegramBot(TOKEN, { webHook: true });
 bot.setWebHook(`${RAILWAY_URL}/bot${TOKEN}`)
   .then(() => console.log('✅ Бот запущен через WebHook на Railway!'))
   .catch(err => console.error('❌ Ошибка установки WebHook:', err));
 
-// ===== Настройка данных =====
+// ===== Данные =====
 const servers = config.servers;
 const admins = config.admins;
 const users = new Map();
 const banned = new Set();
 
-// ===== Помощник для HTML экранирования =====
+// ===== HTML экранирование =====
 const esc = t => t ? t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') : '';
 
-// ===== Функция запроса сервера =====
+// ===== Запрос серверов =====
 async function queryServer(server) {
   try {
     const s = await Gamedig.query({ type: 'cs16', host: server.host, port: server.port });
@@ -53,7 +53,6 @@ async function queryServer(server) {
 
 // ===== Клавиатуры =====
 const startKeyboard = { keyboard: [[{ text: '▶️ Старт' }]], resize_keyboard: true, one_time_keyboard: true };
-
 function mainKeyboard(isAdmin) {
   const rows = [
     ['🎮 Сервера', '➕ Добавить сервер'],
@@ -62,7 +61,6 @@ function mainKeyboard(isAdmin) {
   if (isAdmin) rows.push(['🛠 Админ']);
   return { keyboard: rows, resize_keyboard: true };
 }
-
 function adminKeyboard() {
   return {
     keyboard: [
@@ -101,16 +99,14 @@ bot.on('message', async msg => {
   addUser(msg);
   if (!text) return;
 
-  // ===== Главное меню =====
+  // Главное меню
   if (text === '▶️ Старт') return bot.sendMessage(chatId, 'Главное меню:', { reply_markup: mainKeyboard(isAdmin) });
-
   if (text === 'ℹ️ О боте') {
     return bot.sendMessage(chatId,
       `🤖 CS 1.6 Bot\n\nРазработчик: [Написать разработчику](tg://user?id=6387957935)\n\nФункции:\n• Показывает сервера\n• Онлайн игроков\n• Карта и статус сервера\n• Список игроков`,
       { parse_mode: 'Markdown', reply_markup: mainKeyboard(isAdmin) }
     );
   }
-
   if (text === '📤 Поделиться ботом') {
     return bot.sendPhoto(chatId, 'https://i.postimg.cc/ZRj839L0/images.jpg', {
       caption: `🤖 *CS 1.6 Bot*\n\nПоказывает сервера CS 1.6, онлайн игроков и карты.\n\nПоделитесь ботом с друзьями или в группе!`,
@@ -119,7 +115,7 @@ bot.on('message', async msg => {
     });
   }
 
-  // ===== Серверы =====
+  // Серверы
   if (text === '🎮 Сервера') {
     if (!servers.length) return bot.sendMessage(chatId, 'Серверов пока нет', { reply_markup: mainKeyboard(isAdmin) });
     const inline = servers.map((s,i) => ([{ text: s.name, callback_data: `srv_${i}` }]));
@@ -137,19 +133,15 @@ bot.on('message', async msg => {
     });
   }
 
-  // ===== Админ-панель =====
+  // Админ
   if (text === '🛠 Админ' && isAdmin) return bot.sendMessage(chatId, 'Админ-панель:', { reply_markup: adminKeyboard() });
-
   if (isAdmin && text === '📊 Статистика') return bot.sendMessage(chatId,
     `📊 Статистика бота:\n• Серверов: ${servers.length}\n• Пользователей: ${users.size}\n• Забанено: ${banned.size}`, { reply_markup: adminKeyboard() });
-
   if (isAdmin && text === '👥 Пользователи') {
     const list = [...users.values()].map(u => u.username ? `@${u.username}` : u.first_name).join('\n');
     return bot.sendMessage(chatId, `👥 Пользователи:\n${list || '— пока нет —'}`, { reply_markup: adminKeyboard() });
   }
-
   if (isAdmin && text === '⬅️ Назад') return bot.sendMessage(chatId, 'Главное меню:', { reply_markup: mainKeyboard(true) });
-
   if (isAdmin && text === '🚫 Бан/Разбан') {
     return bot.sendMessage(chatId,
       'Отправьте команду:\n/ban @username\n/unban @username',
@@ -196,4 +188,4 @@ bot.on('callback_query', async q => {
       ]
     }
   });
-}); // <-- Внимание: закрываем callback_query
+}); // конец callback_query
