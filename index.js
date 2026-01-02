@@ -3,17 +3,22 @@ const Gamedig = require('gamedig');
 const config = require('./config');
 
 const TOKEN = process.env.BOT_TOKEN;
-if (!TOKEN) throw new Error('BOT_TOKEN не задан в переменных окружения!');
+const RAILWAY_URL = process.env.RAILWAY_STATIC_URL;
 
-const bot = new TelegramBot(TOKEN, { polling: true });
-console.log('🤖 Бот запущен и ждёт команд...');
+if (!TOKEN) throw new Error('BOT_TOKEN не задан!');
+if (!RAILWAY_URL) throw new Error('RAILWAY_STATIC_URL не задан!');
+
+// Используем webhook
+const bot = new TelegramBot(TOKEN);
+bot.setWebHook(`${RAILWAY_URL}/bot${TOKEN}`);
+
+console.log('🤖 Бот запущен через Webhook на Railway!');
 
 const servers = config.servers;
 const admins = config.admins;
 const users = new Map();
 const banned = new Set();
 
-// ===== Утилиты =====
 const esc = t => t ? t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') : '';
 
 async function queryServer(server) {
