@@ -2,19 +2,33 @@ const TelegramBot = require('node-telegram-bot-api');
 const Gamedig = require('gamedig');
 const config = require('./config');
 
-if (!config.token) {
-  throw new Error('BOT_TOKEN не задан');
-}
+if (!config.token) throw new Error('BOT_TOKEN не задан');
 
 const bot = new TelegramBot(config.token, { polling: true });
 console.log('🤖 Бот запущен');
 
 let servers = config.servers;
 
-// ===== utils =====
+// ===== UTILS =====
 const esc = t => t ? t.replace(/&/g,'&amp;').replace(/</g,'&lt;') : '';
 
-async function getServer(server) {
+// ===== KEYBOARDS =====
+const startKeyboard = {
+  keyboard: [[{ text: '▶️ СТАРТ' }]],
+  resize_keyboard: true,
+  one_time_keyboard: true
+};
+
+const mainKeyboard = {
+  keyboard: [
+    ['🎮 Сервера', '➕ Добавить сервер'],
+    ['ℹ️ О боте']
+  ],
+  resize_keyboard: true
+};
+
+// ===== SERVER QUERY =====
+async function queryServer(server) {
   try {
     const s = await Gamedig.query({
       type: 'cs16',
@@ -38,95 +52,81 @@ async function getServer(server) {
   }
 }
 
-// ===== MENUS =====
-function startMenu() {
-  return {
-    inline_keyboard: [[{ text: '▶️ СТАРТ', callback_data: 'start_menu' }]]
-  };
-}
-
-function mainMenu() {
-  return {
-    inline_keyboard: [
-      [{ text: '🎮 Сервера', callback_data: 'servers' }],
-      [{ text: '➕ Добавить сервер', callback_data: 'add_server' }],
-      [{ text: 'ℹ️ О боте', callback_data: 'about' }]
-    ]
-  };
-}
-
-// ===== /start =====
+// ===== START =====
 bot.onText(/\/start/, msg => {
   bot.sendMessage(msg.chat.id, 'Добро пожаловать 👋', {
-    reply_markup: startMenu()
+    reply_markup: startKeyboard
   });
 });
 
-// ===== CALLBACKS =====
-bot.on('callback_query', async q => {
-  const chatId = q.message.chat.id;
-  const data = q.data;
+// ===== TEXT BUTTONS =====
+bot.on('message', async msg => {
+  const chatId = msg.chat.id;
+  const text = msg.text;
 
-  // START
-  if (data === 'start_menu') {
-    return bot.editMessageText('Главное меню:', {
-      chat_id: chatId,
-      message_id: q.message.message_id,
-      reply_markup: mainMenu()
+  if (text === '▶️ СТАРТ') {
+    return bot.sendMessage(chatId, 'Главное меню:', {
+      reply_markup: mainKeyboard
     });
   }
 
-  // ABOUT
-  if (data === 'about') {
-    return bot.editMessageText(
-      '🤖 CS 1.6 Bot\n\n' +
-      'Показывает информацию о серверах:\n' +
-      '• онлайн\n• карта\n• игроки\n\n' +
-      'Работает 24/7 бесплатно',
-      {
-        chat_id: chatId,
-        message_id: q.message.message_id,
-        reply_markup: mainMenu()
-      }
+  if (text === 'ℹ️ О боте') {
+    return bot.sendMessage(
+      chatId,
+      '🤖 CS 1.6 Bot\n\nПоказывает:\n• онлайн\n• карту\n• игроков\n\nРаботает 24/7 бесплатно',
+      { reply_markup: mainKeyboard }
     );
   }
 
-  // SERVERS LIST
-  if (data === 'servers') {
+  if (text === '🎮 Сервера') {
     if (!servers.length) {
-      return bot.editMessageText('Серверов нет.', {
-        chat_id: chatId,
-        message_id: q.message.message_id,
-        reply_markup: mainMenu()
+      return bot.sendMessage(chatId, 'Серверов пока нет', {
+        reply_markup: mainKeyboard
       });
     }
 
     const kb = servers.map((s, i) => [
       { text: `${s.host}:${s.port}`, callback_data: `srv_${i}` }
     ]);
-    kb.push([{ text: '⬅️ Назад', callback_data: 'start_menu' }]);
 
-    return bot.editMessageText('Выберите сервер:', {
-      chat_id: chatId,
-      message_id: q.message.message_id,
+    return bot.sendMessage(chatId, 'Выберите сервер:', {
       reply_markup: { inline_keyboard: kb }
     });
   }
 
-  // SERVER INFO
+  if (text === '➕ Добавить сервер') {
+    bot.sendMessage(chatId, 'Введите IP:PORT');
+    bot.once('message', msg => {
+      const [host, port] = msg.text.split(':');
+      if (!host || !port) {
+        return bot.sendMessage(chatId, '❌ Неверный формат', {
+          reply_markup: mainKeyboard
+        });
+      }
+      servers.push({ host, port: Number(port) });
+      bot.sendMessage(chatId, '✅ Сервер добавлен', {
+        reply_markup: mainKeyboard
+      });
+    });
+  }
+});
+
+// ===== INLINE =====
+bot.on('callback_query', async q => {
+  const chatId = q.message.chat.id;
+  const data = q.data;
+
   if (data.startsWith('srv_')) {
     const id = Number(data.split('_')[1]);
     const server = servers[id];
-    const info = await getServer(server);
+    const info = await queryServer(server);
 
     if (!info.online) {
       return bot.editMessageText('❌ Сервер OFFLINE', {
         chat_id: chatId,
         message_id: q.message.message_id,
         reply_markup: {
-          inline_keyboard: [
-            [{ text: '⬅️ Назад', callback_data: 'servers' }]
-          ]
+          inline_keyboard: [[{ text: '⬅️ Назад', callback_data: 'back' }]]
         }
       });
     }
@@ -148,22 +148,13 @@ bot.on('callback_query', async q => {
       reply_markup: {
         inline_keyboard: [
           [{ text: '🔄 Обновить', callback_data: `srv_${id}` }],
-          [{ text: '⬅️ Назад', callback_data: 'servers' }]
+          [{ text: '⬅️ Назад', callback_data: 'back' }]
         ]
       }
     });
   }
 
-  // ADD SERVER
-  if (data === 'add_server') {
-    bot.sendMessage(chatId, 'Введите IP:PORT');
-    bot.once('message', msg => {
-      const [host, port] = msg.text.split(':');
-      if (!host || !port) return bot.sendMessage(chatId, 'Неверный формат');
-      servers.push({ host, port: Number(port) });
-      bot.sendMessage(chatId, '✅ Сервер добавлен', {
-        reply_markup: mainMenu()
-      });
-    });
+  if (data === 'back') {
+    bot.deleteMessage(chatId, q.message.message_id);
   }
 });
