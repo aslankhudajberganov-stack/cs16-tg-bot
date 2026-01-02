@@ -1,14 +1,13 @@
 {
   "name": "cs16-tg-bot",
   "version": "1.0.0",
-  "description": "Telegram bot для CS 1.6",
   "main": "index.js",
+  "type": "commonjs",
   "scripts": {
     "start": "node index.js"
   },
-  "type": "commonjs",
   "dependencies": {
-    "gamedig": "^4.3.2",
-    "node-telegram-bot-api": "^0.67.0"
+    "node-telegram-bot-api": "^0.67.0",
+    "gamedig": "^4.3.2"
   }
 }
