@@ -8,11 +8,10 @@ if (!TOKEN) throw new Error('BOT_TOKEN не задан в переменных �
 const bot = new TelegramBot(TOKEN, { polling: true });
 console.log('🤖 Бот запущен и ждёт команд...');
 
-const servers = config.servers; // серверы по умолчанию
-const admins = config.admins;   // массив ID админов
-
-// ===== Хранилище пользователей =====
-let users = new Set();
+const servers = config.servers;
+const admins = config.admins;
+const users = new Map();
+const banned = new Set();
 
 // ===== Утилиты =====
 const esc = t => t ? t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') : '';
@@ -52,20 +51,27 @@ function adminKeyboard() {
   return {
     keyboard: [
       ['📊 Статистика', '👥 Пользователи'],
-      ['⬅️ Назад']
+      ['🚫 Бан/Разбан', '⬅️ Назад']
     ],
     resize_keyboard: true
   };
 }
 
+// ===== Проверка бана =====
+function isBanned(userId) {
+  return banned.has(userId);
+}
+
 // ===== Добавление пользователя =====
-function addUser(id) {
-  if (id) users.add(id);
+function addUser(msg) {
+  if (!msg || isBanned(msg.from.id)) return false;
+  users.set(msg.from.id, { username: msg.from.username, first_name: msg.from.first_name });
+  return true;
 }
 
 // ===== /start =====
 bot.onText(/\/start/, msg => {
-  addUser(msg.from.id);
+  if (!addUser(msg)) return;
   bot.sendMessage(msg.chat.id, 'Добро пожаловать 👋', { reply_markup: startKeyboard });
 });
 
@@ -75,7 +81,7 @@ bot.on('message', async msg => {
   const text = msg.text;
   const isAdmin = admins.includes(msg.from.id);
 
-  addUser(msg.from.id);
+  if (!addUser(msg)) return;
 
   // ===== Главные кнопки =====
   if (text === '▶️ Старт') {
@@ -84,35 +90,40 @@ bot.on('message', async msg => {
 
   if (text === 'ℹ️ О боте') {
     return bot.sendMessage(chatId,
-      '🤖 CS 1.6 Bot\n\nПоказывает:\n• имя сервера\n• карту\n• онлайн/макс игроков\n• список игроков\n\nРаботает 24/7 бесплатно',
-      { reply_markup: mainKeyboard(isAdmin) }
+      `🤖 CS 1.6 Bot\n\nРазработчик: [Написать разработчику](tg://user?id=6387957935)\n\nФункции:\n• Показывает сервера\n• Онлайн игроков\n• Карта и статус сервера\n• Список игроков`,
+      { parse_mode: 'Markdown', reply_markup: mainKeyboard(isAdmin) }
     );
   }
 
   if (text === '📤 Поделиться ботом') {
-    return bot.sendMessage(chatId,
-      `🤖 Поделитесь ботом с друзьями или в группе:\nhttps://t.me/spiritOnline_BOT`,
-      { reply_markup: mainKeyboard(isAdmin) }
-    );
+    return bot.sendPhoto(chatId, 'https://i.imgur.com/YourImage.png', {
+      caption: `🤖 *CS 1.6 Bot*\n\nПоказывает сервера CS 1.6, онлайн игроков и карты.\n\nПоделитесь ботом с друзьями или в группе!`,
+      parse_mode: 'Markdown',
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: 'Переслать друзьям', switch_inline_query: '' }]
+        ]
+      }
+    });
   }
 
+  // ===== Серверы =====
   if (text === '🎮 Сервера') {
-    if (!servers.length) {
-      return bot.sendMessage(chatId, 'Серверов пока нет', { reply_markup: mainKeyboard(isAdmin) });
-    }
-
+    if (!servers.length) return bot.sendMessage(chatId, 'Серверов пока нет', { reply_markup: mainKeyboard(isAdmin) });
     const inline = servers.map((s,i) => ([{ text: s.name, callback_data: `srv_${i}` }]));
     return bot.sendMessage(chatId, 'Выберите сервер:', { reply_markup: { inline_keyboard: inline } });
   }
 
   if (text === '➕ Добавить сервер') {
-    bot.sendMessage(chatId, 'Введите IP:PORT:Name (например 127.0.0.1:27015:Мой сервер)');
+    bot.sendMessage(chatId, 'Введите IP:PORT[:Name] (например 127.0.0.1:27015:Мой сервер)');
     bot.once('message', msg2 => {
-      const [host, port, name] = msg2.text.split(':');
-      if (!host || !port) return bot.sendMessage(chatId, '❌ Неверный формат', { reply_markup: mainKeyboard(isAdmin) });
-
-      servers.push({ host: host.trim(), port: Number(port), name: name?.trim() || `Сервер ${servers.length+1}` });
-      bot.sendMessage(chatId, `✅ Сервер добавлен: ${servers[servers.length-1].name}`, { reply_markup: mainKeyboard(isAdmin) });
+      const [host, port, ...nameParts] = msg2.text.split(':');
+      if (!host || !port) {
+        return bot.sendMessage(chatId, 'Пожалуйста, отправьте IP и PORT в формате: 127.0.0.1:27015', { reply_markup: mainKeyboard(isAdmin) });
+      }
+      const name = nameParts.join(':').trim() || `Сервер ${servers.length+1}`;
+      servers.push({ host: host.trim(), port: Number(port), name });
+      bot.sendMessage(chatId, `✅ Сервер добавлен: ${name}`, { reply_markup: mainKeyboard(isAdmin) });
     });
   }
 
@@ -123,17 +134,25 @@ bot.on('message', async msg => {
 
   if (isAdmin && text === '📊 Статистика') {
     return bot.sendMessage(chatId,
-      `📊 Статистика бота:\n• Серверов: ${servers.length}\n• Пользователей: ${users.size}`,
+      `📊 Статистика бота:\n• Серверов: ${servers.length}\n• Пользователей: ${users.size}\n• Забанено: ${banned.size}`,
       { reply_markup: adminKeyboard() }
     );
   }
 
   if (isAdmin && text === '👥 Пользователи') {
-    return bot.sendMessage(chatId, `👥 Пользователи: ${users.size}`, { reply_markup: adminKeyboard() });
+    const list = [...users.values()].map(u => u.username ? `@${u.username}` : u.first_name).join('\n');
+    return bot.sendMessage(chatId, `👥 Пользователи:\n${list || '— пока нет —'}`, { reply_markup: adminKeyboard() });
   }
 
   if (isAdmin && text === '⬅️ Назад') {
     return bot.sendMessage(chatId, 'Главное меню:', { reply_markup: mainKeyboard(true) });
+  }
+
+  if (isAdmin && text === '🚫 Бан/Разбан') {
+    return bot.sendMessage(chatId,
+      'Отправьте команду:\n/ban @username\n/unban @username',
+      { reply_markup: adminKeyboard() }
+    );
   }
 });
 
@@ -142,7 +161,7 @@ bot.on('callback_query', async q => {
   const chatId = q.message.chat.id;
   const data = q.data;
 
-  addUser(q.from.id);
+  addUser(q.from);
 
   if (data === 'back_servers') {
     const inline = servers.map((s,i) => ([{ text: s.name, callback_data: `srv_${i}` }]));
@@ -166,7 +185,8 @@ bot.on('callback_query', async q => {
   let text =
     `🎮 <b>${esc(info.name)}</b>\n` +
     `🗺 Карта: ${esc(info.map)}\n` +
-    `👥 Онлайн: ${info.players.length}/${info.max}\n\n` +
+    `👥 Онлайн: ${info.players.length}/${info.max}\n` +
+    `✅ Статус: ONLINE\n\n` +
     `<b>Игроки:</b>\n`;
 
   if (!info.players.length) text += '— пусто —';
