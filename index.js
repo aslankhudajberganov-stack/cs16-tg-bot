@@ -1,10 +1,13 @@
+require('dotenv').config(); // dotenv для BOT_TOKEN
+
 const TelegramBot = require('node-telegram-bot-api');
 const Gamedig = require('gamedig');
 const config = require('./config');
 
-if (!config.token) throw new Error('BOT_TOKEN не задан');
+const TOKEN = process.env.BOT_TOKEN;
+if (!TOKEN) throw new Error('BOT_TOKEN не задан');
 
-const bot = new TelegramBot(config.token, { polling: true });
+const bot = new TelegramBot(TOKEN, { polling: true });
 console.log('🤖 Бот запущен');
 
 const servers = config.servers;
@@ -94,7 +97,6 @@ bot.on('message', async msg => {
       });
     }
 
-    // Inline кнопки для выбора сервера
     const inline = servers.map((s, i) => ([
       { text: `${s.name}`, callback_data: `srv_${i}` }
     ]));
@@ -134,7 +136,6 @@ bot.on('message', async msg => {
   }
 
   if (isAdmin && text === '👥 Пользователи') {
-    // Для простоты пока список пользователей из чатов
     return bot.sendMessage(chatId, 'Пользователи: (в разработке)', {
       reply_markup: adminKeyboard()
     });
@@ -149,6 +150,17 @@ bot.on('message', async msg => {
 bot.on('callback_query', async q => {
   const chatId = q.message.chat.id;
   const data = q.data;
+
+  if (data === 'back_servers') {
+    const inline = servers.map((s, i) => ([
+      { text: s.name, callback_data: `srv_${i}` }
+    ]));
+    return bot.editMessageText('Выберите сервер:', {
+      chat_id: chatId,
+      message_id: q.message.message_id,
+      reply_markup: { inline_keyboard: inline }
+    });
+  }
 
   if (!data.startsWith('srv_')) return;
 
@@ -188,21 +200,5 @@ bot.on('callback_query', async q => {
         [{ text: '⬅️ Назад к серверам', callback_data: 'back_servers' }]
       ]
     }
-  });
-});
-
-// ===== BACK TO SERVER LIST =====
-bot.on('callback_query', q => {
-  if (q.data !== 'back_servers') return;
-  const chatId = q.message.chat.id;
-
-  const inline = servers.map((s, i) => ([
-    { text: s.name, callback_data: `srv_${i}` }
-  ]));
-
-  bot.editMessageText('Выберите сервер:', {
-    chat_id: chatId,
-    message_id: q.message.message_id,
-    reply_markup: { inline_keyboard: inline }
   });
 });
