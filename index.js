@@ -42,6 +42,9 @@ const hiddenServersFile = path.join(__dirname, 'hiddenServers.json');
 let hiddenServers = fs.existsSync(hiddenServersFile) ? JSON.parse(fs.readFileSync(hiddenServersFile, 'utf-8')) : {};
 function saveHiddenServers() { fs.writeFileSync(hiddenServersFile, JSON.stringify(hiddenServers, null, 2)); }
 
+// ===== РАССЫЛКА =====
+let broadcastMessages = []; // хранение ID сообщений для удаления
+
 // ===== UTILS =====
 const esc = t => t ? t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') : '';
 
@@ -137,7 +140,8 @@ function initBot() {
         [{ text: '🗑️ Пользовательские серверы', callback_data: 'admin_user_servers' }],
         [{ text: '➕ Добавить сервер глобально', callback_data: 'admin_add_server' }],
         [{ text: '🗑️ Очистить все пользовательские серверы', callback_data: 'admin_clear_user_servers' }],
-        [{ text: '📢 Рассылка пользователям', callback_data: 'admin_broadcast' }] // новая кнопка
+        [{ text: '📢 Рассылка пользователям', callback_data: 'admin_broadcast' }],
+        [{ text: '❌ Отменить рассылку', callback_data: 'admin_cancel_broadcast' }]
       ];
       return bot.sendMessage(chatId, '🛠 Админ-панель:', { reply_markup: { inline_keyboard: inline } });
     }
@@ -275,12 +279,25 @@ function initBot() {
         const broadcastText = msg.text;
         if (!broadcastText) return bot.sendMessage(chatId, '❌ Сообщение пустое');
 
-        let count = 0;
+        broadcastMessages = [];
         users.forEach(uid => {
-          bot.sendMessage(uid, `📢 Сообщение от админа:\n\n${broadcastText}`).then(() => count++);
+          bot.sendMessage(uid, `📢 Сообщение от админа:\n\n${broadcastText}`).then(sentMsg => {
+            broadcastMessages.push({ chatId: uid, messageId: sentMsg.message_id });
+          });
         });
-        bot.sendMessage(chatId, `✅ Сообщение отправлено ${count} пользователям`);
+        bot.sendMessage(chatId, `✅ Сообщение отправлено ${users.length} пользователям`);
       });
     }
+
+    if (data === 'admin_cancel_broadcast') {
+      if (!broadcastMessages.length) return bot.sendMessage(chatId, '❌ Нет текущих сообщений для удаления');
+
+      broadcastMessages.forEach(msg => {
+        bot.deleteMessage(msg.chatId, msg.messageId).catch(() => {});
+      });
+      broadcastMessages = [];
+      return bot.sendMessage(chatId, '✅ Все сообщения рассылки удалены');
+    }
+
   });
 }
