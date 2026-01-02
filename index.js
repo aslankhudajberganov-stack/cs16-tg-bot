@@ -63,15 +63,17 @@ function isBanned(userId) {
 }
 
 // ===== Добавление пользователя =====
-function addUser(msg) {
-  if (!msg || isBanned(msg.from.id)) return false;
-  users.set(msg.from.id, { username: msg.from.username, first_name: msg.from.first_name });
+function addUser(msgOrQ) {
+  if (!msgOrQ || !msgOrQ.from) return false;
+  const userId = msgOrQ.from.id;
+  if (banned.has(userId)) return false;
+  users.set(userId, { username: msgOrQ.from.username, first_name: msgOrQ.from.first_name });
   return true;
 }
 
 // ===== /start =====
 bot.onText(/\/start/, msg => {
-  if (!addUser(msg)) return;
+  addUser(msg);
   bot.sendMessage(msg.chat.id, 'Добро пожаловать 👋', { reply_markup: startKeyboard });
 });
 
@@ -79,9 +81,11 @@ bot.onText(/\/start/, msg => {
 bot.on('message', async msg => {
   const chatId = msg.chat.id;
   const text = msg.text;
-  const isAdmin = admins.includes(msg.from.id);
+  const isAdmin = admins.includes(msg.from?.id);
 
-  if (!addUser(msg)) return;
+  addUser(msg);
+
+  if (!text) return;
 
   // ===== Главные кнопки =====
   if (text === '▶️ Старт') {
@@ -159,7 +163,7 @@ bot.on('callback_query', async q => {
   const chatId = q.message.chat.id;
   const data = q.data;
 
-  addUser(q.from);
+  addUser(q);
 
   if (data === 'back_servers') {
     const inline = servers.map((s,i) => ([{ text: s.name, callback_data: `srv_${i}` }]));
@@ -174,7 +178,7 @@ bot.on('callback_query', async q => {
 
   if (!info.online) {
     return bot.editMessageText(`❌ Сервер OFFLINE: ${server.name}`, {
-      chat_id: chatId,
+      chat_id,
       message_id: q.message.message_id,
       reply_markup: { inline_keyboard: [[{ text: '⬅️ Назад к серверам', callback_data: 'back_servers' }]] }
     });
@@ -191,7 +195,7 @@ bot.on('callback_query', async q => {
   else info.players.forEach((p,i) => { text += `${i+1}. ${esc(p.name)} | ${p.score} | ${p.time} мин\n`; });
 
   bot.editMessageText(text, {
-    chat_id: chatId,
+    chat_id,
     message_id: q.message.message_id,
     parse_mode: 'HTML',
     reply_markup: {
