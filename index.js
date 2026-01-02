@@ -3,15 +3,20 @@ const Gamedig = require('gamedig');
 const config = require('./config');
 
 const TOKEN = process.env.BOT_TOKEN;
-const RAILWAY_URL = process.env.RAILWAY_STATIC_URL;
+const RAILWAY_URL = process.env.RAILWAY_STATIC_URL || '';
 
 if (!TOKEN) throw new Error('BOT_TOKEN не задан!');
-if (!RAILWAY_URL) throw new Error('RAILWAY_STATIC_URL не задан!');
 
-const bot = new TelegramBot(TOKEN);
-bot.setWebHook(`${RAILWAY_URL}/bot${TOKEN}`);
+const bot = RAILWAY_URL
+  ? new TelegramBot(TOKEN, { webHook: true })
+  : new TelegramBot(TOKEN, { polling: true });
 
-console.log('🤖 Бот запущен через Webhook на Railway!');
+if (RAILWAY_URL) {
+  bot.setWebHook(`${RAILWAY_URL}/bot${TOKEN}`);
+  console.log('🤖 Бот запущен через Webhook на Railway!');
+} else {
+  console.log('🤖 Бот запущен в режиме polling (локальный запуск)');
+}
 
 const servers = config.servers;
 const admins = config.admins;
@@ -62,12 +67,16 @@ function adminKeyboard() {
 }
 
 // ===== Пользователи =====
-function addUser(msgOrQ) {
-  if (!msgOrQ || !msgOrQ.from) return false;
-  const userId = msgOrQ.from.id;
+function addUser(obj) {
+  // Поддержка msg и callback_query
+  const from = obj?.from;
+  if (!from) return false;
+
+  const userId = from.id;
   if (!userId) return false;
   if (banned.has(userId)) return false;
-  users.set(userId, { username: msgOrQ.from.username, first_name: msgOrQ.from.first_name });
+
+  users.set(userId, { username: from.username, first_name: from.first_name });
   return true;
 }
 
