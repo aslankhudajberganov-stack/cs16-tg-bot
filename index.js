@@ -201,8 +201,7 @@ function initBot() {
 
     switch(data) {
       case 'admin_stats':
-        const text = `📊 Статистика бота:\n\n👥 Пользователей: ${users.length}\n🎮 Всего серверов: ${config.servers.length + userServers.length}`;
-        return bot.editMessageText(text, { chat_id: chatId, message_id: messageId });
+        return bot.editMessageText(`📊 Статистика бота:\n\n👥 Пользователей: ${users.length}\n🎮 Всего серверов: ${config.servers.length + userServers.length}`, { chat_id: chatId, message_id: messageId });
 
       case 'admin_clear_user_servers':
         userServers = [];
@@ -221,37 +220,6 @@ function initBot() {
 
       case 'admin_delete_bot':
         bot.sendMessage(chatId, '❌ Бот будет полностью остановлен').then(() => process.exit(0));
-        break;
-
-      // Добавление сервера глобально
-      case 'admin_add_server':
-        bot.sendMessage(chatId, 'Введите IP:PORT нового сервера для всех пользователей:');
-        bot.once('message', msg => {
-          const [host, port] = msg.text.split(':');
-          if (!host || !port || isNaN(port)) return bot.sendMessage(chatId, '❌ Неверный формат. Используйте IP:PORT');
-          const serverName = `${host}:${port}`;
-          userServers.push({ host, port: Number(port), name: serverName });
-          saveUserServers();
-          bot.sendMessage(chatId, `✅ Сервер "${serverName}" добавлен глобально!`);
-        });
-        break;
-
-      // Пользователи + удаление
-      case 'admin_users_links':
-        if (!users.length) return bot.sendMessage(chatId, '❌ Пользователей нет');
-        const inline = users.map(uid => [
-          { text: `Профиль ${uid}`, url: `tg://user?id=${uid}` },
-          { text: '❌ Удалить', callback_data: `admin_delete_user_${uid}` }
-        ]);
-        return bot.sendMessage(chatId, 'Ссылки на Telegram-профили пользователей:', { reply_markup: { inline_keyboard: inline } });
-
-      default:
-        if (data.startsWith('admin_delete_user_')) {
-          const uid = Number(data.split('_')[3]);
-          users = users.filter(u => u !== uid);
-          saveUsers();
-          return bot.editMessageText(`✅ Пользователь ${uid} удален`, { chat_id: chatId, message_id: messageId });
-        }
         break;
     }
   });
