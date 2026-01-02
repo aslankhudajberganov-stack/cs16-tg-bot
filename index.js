@@ -8,6 +8,27 @@ if (!config.token) throw new Error('BOT_TOKEN не задан');
 
 let bot;
 
+// ===== Запуск бота с защитой от 409 =====
+function startBot() {
+  bot = new TelegramBot(config.token, { polling: true });
+
+  bot.on('polling_error', err => {
+    if (err.code === 'ETELEGRAM' && err.response && err.response.error_code === 409) {
+      console.warn('⚠️ Конфликт: другой экземпляр бота уже работает. Перезапуск polling...');
+      bot.stopPolling();
+      setTimeout(startBot, 1000);
+    } else {
+      console.error('❌ Ошибка polling:', err);
+    }
+  });
+
+  console.log('🤖 Бот запущен');
+
+  initBot();
+}
+
+startBot();
+
 // ===== ФАЙЛЫ =====
 const userServersFile = path.join(__dirname, 'userServers.json');
 let userServers = fs.existsSync(userServersFile) ? JSON.parse(fs.readFileSync(userServersFile, 'utf-8')) : [];
@@ -43,7 +64,7 @@ async function queryServer(server) {
   }
 }
 
-// ===== КНОПКИ =====
+// ===== KEYBOARDS =====
 function mainKeyboard(isAdmin) {
   const rows = [
     ['🎮 Сервера', '➕ Добавить сервер'],
@@ -53,28 +74,7 @@ function mainKeyboard(isAdmin) {
   return { keyboard: rows, resize_keyboard: true };
 }
 
-// ===== ЗАПУСК БОТА =====
-function startBot() {
-  bot = new TelegramBot(config.token, { polling: true });
-
-  bot.on('polling_error', err => {
-    if (err.code === 'ETELEGRAM' && err.response && err.response.error_code === 409) {
-      console.warn('⚠️ Конфликт: другой экземпляр бота уже работает. Перезапуск polling...');
-      bot.stopPolling();
-      setTimeout(startBot, 1000);
-    } else {
-      console.error('❌ Ошибка polling:', err);
-    }
-  });
-
-  console.log('🤖 Бот запущен');
-
-  initBot();
-}
-
-startBot();
-
-// ===== ИНИЦИАЛИЗАЦИЯ =====
+// ===== ИНИЦИАЛИЗАЦИЯ БОТА =====
 function initBot() {
   bot.on('message', async msg => {
     const chatId = msg.chat.id;
@@ -136,17 +136,13 @@ function initBot() {
         [{ text: '👤 Пользователи (ссылки + удалить)', callback_data: 'admin_users_links' }],
         [{ text: '🗑️ Пользовательские серверы', callback_data: 'admin_user_servers' }],
         [{ text: '➕ Добавить сервер глобально', callback_data: 'admin_add_server' }],
-        [{ text: '🗑️ Очистить все пользовательские серверы', callback_data: 'admin_clear_user_servers' }],
-        [{ text: '📣 Рассылка пользователям', callback_data: 'admin_broadcast' }],
-        [{ text: '⏸ Остановить бот', callback_data: 'admin_stop_bot' }],
-        [{ text: '▶️ Запустить бот', callback_data: 'admin_start_bot' }],
-        [{ text: '❌ Удалить бот', callback_data: 'admin_delete_bot' }]
+        [{ text: '🗑️ Очистить все пользовательские серверы', callback_data: 'admin_clear_user_servers' }]
       ];
       return bot.sendMessage(chatId, '🛠 Админ-панель:', { reply_markup: { inline_keyboard: inline } });
     }
   });
 
-  // ===== CALLBACK QUERY =====
+  // ===== INLINE CALLBACKS =====
   bot.on('callback_query', async q => {
     const chatId = q.message.chat.id;
     const messageId = q.message.message_id;
@@ -156,10 +152,38 @@ function initBot() {
 
     const allServers = [...config.servers, ...userServers];
 
-    // ===== СЕРВЕРЫ =====
+    // ===== Удаление всех пользовательских серверов =====
+    if (data === 'admin_clear_user_servers') {
+      userServers = [];
+      saveUserServers();
+      return bot.editMessageText('✅ Все пользовательские серверы удалены', { chat_id: chatId, message_id: messageId });
+    }
+
+    // ===== Удаление пользовательского сервера =====
+    if (data.startsWith('deluser_srv_')) {
+      const id = Number(data.split('_')[2]);
+      const server = userServers[id];
+      if (!server) return bot.answerCallbackQuery(q.id, { text: '❌ Сервер не найден' });
+      userServers.splice(id, 1);
+      saveUserServers();
+      return bot.editMessageText(`✅ Ваш сервер "${server.name}" удален`, { chat_id: chatId, message_id: messageId });
+    }
+
+    // ===== Скрытие стандартного сервера =====
+    if (data.startsWith('hide_srv_')) {
+      const id = Number(data.split('_')[2]);
+      hiddenServers[userId] = hiddenServers[userId] || [];
+      if (!hiddenServers[userId].includes(id)) hiddenServers[userId].push(id);
+      saveHiddenServers();
+      return bot.editMessageText(`✅ Сервер "${allServers[id].name}" скрыт для вас`, { chat_id: chatId, message_id: messageId });
+    }
+
+    // ===== Показ информации о сервере =====
     if (data.startsWith('srv_')) {
       const id = Number(data.split('_')[1]);
       const server = allServers[id];
+      if (!server) return bot.answerCallbackQuery(q.id, { text: '❌ Сервер не найден' });
+
       const info = await queryServer(server);
 
       if (!info.online) {
@@ -199,28 +223,52 @@ function initBot() {
     // ===== АДМИН CALLBACKS =====
     if (!isAdmin) return;
 
-    switch(data) {
-      case 'admin_stats':
-        return bot.editMessageText(`📊 Статистика бота:\n\n👥 Пользователей: ${users.length}\n🎮 Всего серверов: ${config.servers.length + userServers.length}`, { chat_id: chatId, message_id: messageId });
-
-      case 'admin_clear_user_servers':
-        userServers = [];
-        saveUserServers();
-        return bot.editMessageText('✅ Все пользовательские серверы удалены', { chat_id: chatId, message_id: messageId });
-
-      case 'admin_stop_bot':
-        bot.stopPolling();
-        bot.sendMessage(chatId, '⏸ Бот остановлен. Чтобы снова запустить, нажмите "▶️ Запустить бот"');
-        break;
-
-      case 'admin_start_bot':
-        if (!bot) startBot();
-        else bot.sendMessage(chatId, '✅ Бот уже работает');
-        break;
-
-      case 'admin_delete_bot':
-        bot.sendMessage(chatId, '❌ Бот будет полностью остановлен').then(() => process.exit(0));
-        break;
+    if (data === 'admin_stats') {
+      const text = `📊 Статистика бота:\n\n👥 Пользователей: ${users.length}\n🎮 Всего серверов: ${config.servers.length + userServers.length}`;
+      return bot.editMessageText(text, { chat_id: chatId, message_id: messageId });
     }
+
+    if (data === 'admin_users_links') {
+      if (!users.length) return bot.sendMessage(chatId, '❌ Пользователей нет');
+      const inline = users.map(uid => [
+        { text: `Профиль ${uid}`, url: `tg://user?id=${uid}` },
+        { text: '❌ Удалить', callback_data: `admin_delete_user_${uid}` }
+      ]);
+      return bot.sendMessage(chatId, 'Ссылки на Telegram-профили пользователей:', { reply_markup: { inline_keyboard: inline } });
+    }
+
+    if (data.startsWith('admin_delete_user_')) {
+      const uid = Number(data.split('_')[3]);
+      users = users.filter(u => u !== uid);
+      saveUsers();
+      return bot.editMessageText(`✅ Пользователь ${uid} удален`, { chat_id: chatId, message_id: messageId });
+    }
+
+    if (data === 'admin_user_servers') {
+      if (!userServers.length) return bot.sendMessage(chatId, '❌ Пользовательских серверов нет');
+      const inline = userServers.map((s, i) => [{ text: s.name, callback_data: `del_srv_${i}` }]);
+      return bot.sendMessage(chatId, 'Выберите сервер для удаления:', { reply_markup: { inline_keyboard: inline } });
+    }
+
+    if (data.startsWith('del_srv_')) {
+      const id = Number(data.split('_')[2]);
+      const server = userServers[id];
+      userServers.splice(id, 1);
+      saveUserServers();
+      return bot.editMessageText(`✅ Сервер "${server.name}" удален`, { chat_id: chatId, message_id: messageId });
+    }
+
+    if (data === 'admin_add_server') {
+      bot.sendMessage(chatId, 'Введите IP:PORT нового сервера для всех пользователей:');
+      bot.once('message', msg => {
+        const [host, port] = msg.text.split(':');
+        if (!host || !port || isNaN(port)) return bot.sendMessage(chatId, '❌ Неверный формат. Используйте IP:PORT');
+        const serverName = `${host}:${port}`;
+        userServers.push({ host, port: Number(port), name: serverName });
+        saveUserServers();
+        bot.sendMessage(chatId, `✅ Сервер "${serverName}" добавлен глобально!`);
+      });
+    }
+
   });
 }
