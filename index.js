@@ -6,21 +6,26 @@ const config = require('./config');
 const TOKEN = process.env.BOT_TOKEN;
 const RAILWAY_URL = process.env.RAILWAY_STATIC_URL;
 
+// Проверка токена
 if (!TOKEN) {
-  console.error('❌ Ошибка: BOT_TOKEN не задан! Установите переменную BOT_TOKEN на Railway.');
+  console.error('❌ Ошибка: BOT_TOKEN не задан! Установите переменную BOT_TOKEN.');
   process.exit(1);
 }
 
-if (!RAILWAY_URL) {
-  console.error('❌ Ошибка: RAILWAY_STATIC_URL не задан! Установите переменную RAILWAY_STATIC_URL на Railway.');
-  process.exit(1);
-}
+// ===== Определяем режим =====
+let bot;
 
-// ===== WebHook =====
-const bot = new TelegramBot(TOKEN, { webHook: true });
-bot.setWebHook(`${RAILWAY_URL}/bot${TOKEN}`)
-  .then(() => console.log('✅ Бот запущен через WebHook на Railway!'))
-  .catch(err => console.error('❌ Ошибка установки WebHook:', err));
+if (RAILWAY_URL) {
+  // WebHook для Railway
+  bot = new TelegramBot(TOKEN, { webHook: true });
+  bot.setWebHook(`${RAILWAY_URL}/bot${TOKEN}`)
+    .then(() => console.log('✅ Бот запущен через WebHook на Railway!'))
+    .catch(err => console.error('❌ Ошибка установки WebHook:', err));
+} else {
+  // Если локально или RAILWAY_STATIC_URL не задан
+  console.log('⚠️ RAILWAY_STATIC_URL не задан. Запускаем бот локально через polling...');
+  bot = new TelegramBot(TOKEN, { polling: true });
+}
 
 // ===== Данные =====
 const servers = config.servers;
@@ -188,4 +193,4 @@ bot.on('callback_query', async q => {
       ]
     }
   });
-}); // конец callback_query
+});
