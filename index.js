@@ -8,8 +8,8 @@ if (!TOKEN) throw new Error('BOT_TOKEN не задан в переменных �
 const bot = new TelegramBot(TOKEN, { polling: true });
 console.log('🤖 Бот запущен и ждёт команд...');
 
-const servers = config.servers;       // серверы по умолчанию
-const admins = config.admins;         // список айди админов
+const servers = config.servers; // серверы по умолчанию
+const admins = config.admins;   // массив ID админов
 
 // ===== Хранилище пользователей =====
 let users = new Set();
@@ -19,11 +19,7 @@ const esc = t => t ? t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'
 
 async function queryServer(server) {
   try {
-    const s = await Gamedig.query({
-      type: 'cs16',
-      host: server.host,
-      port: server.port
-    });
+    const s = await Gamedig.query({ type: 'cs16', host: server.host, port: server.port });
     return {
       online: true,
       name: server.name || s.name,
@@ -32,7 +28,7 @@ async function queryServer(server) {
       players: s.players.map(p => ({
         name: p.name || 'Unknown',
         score: p.score ?? 0,
-        time: Math.floor((p.time || 0) / 60)
+        time: Math.floor((p.time || 0)/60)
       }))
     };
   } catch {
@@ -70,9 +66,7 @@ function addUser(id) {
 // ===== /start =====
 bot.onText(/\/start/, msg => {
   addUser(msg.from.id);
-  bot.sendMessage(msg.chat.id, 'Добро пожаловать 👋', {
-    reply_markup: startKeyboard
-  });
+  bot.sendMessage(msg.chat.id, 'Добро пожаловать 👋', { reply_markup: startKeyboard });
 });
 
 // ===== Обработка сообщений (reply кнопки) =====
@@ -97,7 +91,7 @@ bot.on('message', async msg => {
 
   if (text === '📤 Поделиться ботом') {
     return bot.sendMessage(chatId,
-      `🤖 Поделитесь ботом с друзьями или в группе:\nhttps://t.me/ВАШ_BOT_USERNAME`,
+      `🤖 Поделитесь ботом с друзьями или в группе:\nhttps://t.me/spiritOnline_BOT`,
       { reply_markup: mainKeyboard(isAdmin) }
     );
   }
@@ -108,10 +102,7 @@ bot.on('message', async msg => {
     }
 
     const inline = servers.map((s,i) => ([{ text: s.name, callback_data: `srv_${i}` }]));
-
-    return bot.sendMessage(chatId, 'Выберите сервер:', {
-      reply_markup: { inline_keyboard: inline }
-    });
+    return bot.sendMessage(chatId, 'Выберите сервер:', { reply_markup: { inline_keyboard: inline } });
   }
 
   if (text === '➕ Добавить сервер') {
@@ -120,12 +111,7 @@ bot.on('message', async msg => {
       const [host, port, name] = msg2.text.split(':');
       if (!host || !port) return bot.sendMessage(chatId, '❌ Неверный формат', { reply_markup: mainKeyboard(isAdmin) });
 
-      servers.push({
-        host: host.trim(),
-        port: Number(port),
-        name: name?.trim() || `Сервер ${servers.length + 1}`
-      });
-
+      servers.push({ host: host.trim(), port: Number(port), name: name?.trim() || `Сервер ${servers.length+1}` });
       bot.sendMessage(chatId, `✅ Сервер добавлен: ${servers[servers.length-1].name}`, { reply_markup: mainKeyboard(isAdmin) });
     });
   }
@@ -160,11 +146,7 @@ bot.on('callback_query', async q => {
 
   if (data === 'back_servers') {
     const inline = servers.map((s,i) => ([{ text: s.name, callback_data: `srv_${i}` }]));
-    return bot.editMessageText('Выберите сервер:', {
-      chat_id: chatId,
-      message_id: q.message.message_id,
-      reply_markup: { inline_keyboard: inline }
-    });
+    return bot.editMessageText('Выберите сервер:', { chat_id: chatId, message_id: q.message.message_id, reply_markup: { inline_keyboard: inline } });
   }
 
   if (!data.startsWith('srv_')) return;
