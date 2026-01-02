@@ -21,7 +21,12 @@ function saveBans() {
 }
 
 // ===== Пользовательские серверы =====
+const userServersFile = path.join(__dirname, 'userServers.json');
 let userServers = [];
+if (fs.existsSync(userServersFile)) userServers = JSON.parse(fs.readFileSync(userServersFile, 'utf-8'));
+function saveUserServers() {
+  fs.writeFileSync(userServersFile, JSON.stringify(userServers, null, 2));
+}
 
 // ===== Utils =====
 const esc = t =>
@@ -47,14 +52,12 @@ async function queryServer(server) {
 }
 
 // ===== Keyboards =====
-const startKeyboard = { keyboard: [[{ text: '▶️ Старт' }]], resize_keyboard: true, one_time_keyboard: true };
 function mainKeyboard(isAdmin) {
   const rows = [
-    ['🎮 Сервера'],
+    ['🎮 Сервера', '➕ Добавить сервер'], // кнопка для серверов и добавления рядом
     ['ℹ️ О боте', '📤 Поделиться ботом']
   ];
-  if (isAdmin) rows.push(['🛠 Админ']);
-  rows.push(['➕ Добавить сервер']); // кнопка для добавления сервера
+  if (isAdmin) rows.push(['🛠 Админ']); // админ кнопка
   return { keyboard: rows, resize_keyboard: true };
 }
 
@@ -64,8 +67,13 @@ bot.on('message', async msg => {
   const text = msg.text;
   const isAdmin = admins.includes(msg.from.id);
 
-  if (text === '▶️ Старт') {
+  // Если пользователь пишет /start — сразу показываем главное меню
+  if (text === '/start') {
     return bot.sendMessage(chatId, 'Добро пожаловать 👋\nГлавное меню:', { reply_markup: mainKeyboard(isAdmin) });
+  }
+
+  if (text === '▶️ Старт') {
+    return bot.sendMessage(chatId, 'Главное меню:', { reply_markup: mainKeyboard(isAdmin) });
   }
 
   if (text === '🎮 Сервера') {
@@ -81,6 +89,7 @@ bot.on('message', async msg => {
       if (!host || !port || isNaN(port)) return bot.sendMessage(chatId, '❌ Неверный формат. Используйте IP:PORT');
       const serverName = `${host}:${port}`;
       userServers.push({ host, port: Number(port), name: serverName });
+      saveUserServers();
       bot.sendMessage(chatId, `✅ Сервер "${serverName}" добавлен!`);
     });
   }
