@@ -1,9 +1,10 @@
 module.exports = {
   token: process.env.BOT_TOKEN,
 
-  // Укажи СВОЙ Telegram ID для админ-кнопок
-  admins: [123456789],
+  // Админ (только он увидит админ-панель)
+  admins: [6387957935],
 
+  // Три сервера по умолчанию
   servers: [
     { host: '46.174.55.32', port: 27015, name: 'SPIRIT [CLASSIC]' },
     { host: '62.122.213.153', port: 27015, name: 'SD' },
