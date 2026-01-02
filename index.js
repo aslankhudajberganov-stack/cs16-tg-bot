@@ -12,20 +12,18 @@ if (!TOKEN) {
   process.exit(1);
 }
 
-// ===== Определяем режим =====
-let bot;
-
-if (RAILWAY_URL) {
-  // WebHook для Railway
-  bot = new TelegramBot(TOKEN, { webHook: true });
-  bot.setWebHook(`${RAILWAY_URL}/bot${TOKEN}`)
-    .then(() => console.log('✅ Бот запущен через WebHook на Railway!'))
-    .catch(err => console.error('❌ Ошибка установки WebHook:', err));
-} else {
-  // Если локально или RAILWAY_STATIC_URL не задан
-  console.log('⚠️ RAILWAY_STATIC_URL не задан. Запускаем бот локально через polling...');
-  bot = new TelegramBot(TOKEN, { polling: true });
+// Проверка URL для WebHook
+if (!RAILWAY_URL) {
+  console.error('❌ Ошибка: RAILWAY_STATIC_URL не задан! Установите переменную окружения RAILWAY_STATIC_URL на Railway.');
+  process.exit(1);
 }
+
+// ===== Создаём бота через WebHook =====
+const bot = new TelegramBot(TOKEN, { webHook: true });
+
+bot.setWebHook(`${RAILWAY_URL}/bot${TOKEN}`)
+  .then(() => console.log('✅ Бот запущен через WebHook на Railway!'))
+  .catch(err => console.error('❌ Ошибка установки WebHook:', err));
 
 // ===== Данные =====
 const servers = config.servers;
@@ -58,6 +56,7 @@ async function queryServer(server) {
 
 // ===== Клавиатуры =====
 const startKeyboard = { keyboard: [[{ text: '▶️ Старт' }]], resize_keyboard: true, one_time_keyboard: true };
+
 function mainKeyboard(isAdmin) {
   const rows = [
     ['🎮 Сервера', '➕ Добавить сервер'],
@@ -66,6 +65,7 @@ function mainKeyboard(isAdmin) {
   if (isAdmin) rows.push(['🛠 Админ']);
   return { keyboard: rows, resize_keyboard: true };
 }
+
 function adminKeyboard() {
   return {
     keyboard: [
@@ -157,40 +157,18 @@ bot.on('message', async msg => {
 
 // ===== Inline server info =====
 bot.on('callback_query', async q => {
-  const chatId = q.message.chat.id;
-  const data = q.data;
-  addUser(q);
+  try {
+    const chatId = q.message.chat.id; // ✅ исправлено
+    const data = q.data;
 
-  if (data === 'back_servers') {
-    const inline = servers.map((s,i) => ([{ text: s.name, callback_data: `srv_${i}` }]));
-    return bot.editMessageText('Выберите сервер:', { chat_id: chatId, message_id: q.message.message_id, reply_markup: { inline_keyboard: inline } });
-  }
+    addUser(q);
 
-  if (!data.startsWith('srv_')) return;
-
-  const id = Number(data.split('_')[1]);
-  const server = servers[id];
-  const info = await queryServer(server);
-
-  let text =
-    `🎮 <b>${esc(info.name)}</b>\n` +
-    `🗺 Карта: ${esc(info.map)}\n` +
-    `👥 Онлайн: ${info.players.length}/${info.max}\n` +
-    `✅ Статус: ${info.online ? 'ONLINE' : 'OFFLINE'}\n\n` +
-    `<b>Игроки:</b>\n`;
-
-  if (!info.players.length) text += '— пусто —';
-  else info.players.forEach((p,i) => { text += `${i+1}. ${esc(p.name)} | ${p.score} | ${p.time} мин\n`; });
-
-  bot.editMessageText(text, {
-    chat_id,
-    message_id: q.message.message_id,
-    parse_mode: 'HTML',
-    reply_markup: {
-      inline_keyboard: [
-        [{ text: '🔄 Обновить', callback_data: `srv_${id}` }],
-        [{ text: '⬅️ Назад к серверам', callback_data: 'back_servers' }]
-      ]
+    if (data === 'back_servers') {
+      const inline = servers.map((s,i) => ([{ text: s.name, callback_data: `srv_${i}` }]));
+      return bot.editMessageText('Выберите сервер:', { chat_id: chatId, message_id: q.message.message_id, reply_markup: { inline_keyboard: inline } });
     }
-  });
-});
+
+    if (!data.startsWith('srv_')) return;
+
+    const id = Number(data.split('_')[1]);
+    const serv
