@@ -20,6 +20,9 @@ function saveBans() {
   fs.writeFileSync(bansFile, JSON.stringify(bans, null, 2));
 }
 
+// ===== Пользовательские серверы =====
+let userServers = [];
+
 // ===== Utils =====
 const esc = t =>
   t ? t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') : '';
@@ -51,13 +54,9 @@ function mainKeyboard(isAdmin) {
     ['ℹ️ О боте', '📤 Поделиться ботом']
   ];
   if (isAdmin) rows.push(['🛠 Админ']);
+  rows.push(['➕ Добавить сервер']); // кнопка для добавления сервера
   return { keyboard: rows, resize_keyboard: true };
 }
-
-// ===== /start =====
-bot.onText(/\/start/, msg => {
-  bot.sendMessage(msg.chat.id, 'Добро пожаловать 👋', { reply_markup: startKeyboard });
-});
 
 // ===== MESSAGE HANDLER =====
 bot.on('message', async msg => {
@@ -66,12 +65,24 @@ bot.on('message', async msg => {
   const isAdmin = admins.includes(msg.from.id);
 
   if (text === '▶️ Старт') {
-    return bot.sendMessage(chatId, 'Главное меню:', { reply_markup: mainKeyboard(isAdmin) });
+    return bot.sendMessage(chatId, 'Добро пожаловать 👋\nГлавное меню:', { reply_markup: mainKeyboard(isAdmin) });
   }
 
   if (text === '🎮 Сервера') {
-    const inline = servers.map((s, i) => [{ text: s.name, callback_data: `srv_${i}` }]);
+    const allServers = [...servers, ...userServers];
+    const inline = allServers.map((s, i) => [{ text: s.name, callback_data: `srv_${i}` }]);
     return bot.sendMessage(chatId, 'Выберите сервер:', { reply_markup: { inline_keyboard: inline } });
+  }
+
+  if (text === '➕ Добавить сервер') {
+    bot.sendMessage(chatId, 'Введите адрес сервера в формате IP:PORT:');
+    bot.once('message', msg => {
+      const [host, port] = msg.text.split(':');
+      if (!host || !port || isNaN(port)) return bot.sendMessage(chatId, '❌ Неверный формат. Используйте IP:PORT');
+      const serverName = `${host}:${port}`;
+      userServers.push({ host, port: Number(port), name: serverName });
+      bot.sendMessage(chatId, `✅ Сервер "${serverName}" добавлен!`);
+    });
   }
 
   if (text === 'ℹ️ О боте') {
@@ -101,10 +112,11 @@ bot.on('callback_query', async q => {
   const data = q.data;
   const isAdmin = admins.includes(q.from.id);
 
-  // Серверы
+  const allServers = [...servers, ...userServers];
+
   if (data.startsWith('srv_')) {
     const id = Number(data.split('_')[1]);
-    const server = servers[id];
+    const server = allServers[id];
     const info = await queryServer(server);
 
     if (!info.online) {
@@ -137,18 +149,16 @@ bot.on('callback_query', async q => {
     });
   }
 
-  // Назад к списку серверов
   if (data === 'back_servers') {
-    const inline = servers.map((s, i) => [{ text: s.name, callback_data: `srv_${i}` }]);
+    const inline = allServers.map((s, i) => [{ text: s.name, callback_data: `srv_${i}` }]);
     return bot.editMessageText('Выберите сервер:', { chat_id: chatId, message_id: q.message.message_id, reply_markup: { inline_keyboard: inline } });
   }
 
-  // Админ
   if (!isAdmin) return;
 
   if (data === 'admin_stats') {
     let text = '📊 Статистика серверов:\n\n';
-    for (let s of servers) {
+    for (let s of allServers) {
       const info = await queryServer(s);
       const online = info.online ? '✅ Online' : '❌ Offline';
       const players = info.players ? info.players.length : 0;
