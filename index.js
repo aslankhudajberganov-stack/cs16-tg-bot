@@ -1,24 +1,21 @@
-require('dotenv').config(); // dotenv для BOT_TOKEN
-
 const TelegramBot = require('node-telegram-bot-api');
 const Gamedig = require('gamedig');
 const config = require('./config');
 
 const TOKEN = process.env.BOT_TOKEN;
-if (!TOKEN) throw new Error('BOT_TOKEN не задан');
+if (!TOKEN) throw new Error('BOT_TOKEN не задан в переменных окружения!');
 
 const bot = new TelegramBot(TOKEN, { polling: true });
-console.log('🤖 Бот запущен');
+console.log('🤖 Бот запущен и ждёт команд...');
 
-const servers = config.servers;
-const admins = config.admins;
+const servers = config.servers;       // серверы по умолчанию
+const admins = config.admins;         // список айди админов
 
 // ===== Хранилище пользователей =====
 let users = new Set();
 
-// ===== utils =====
-const esc = t =>
-  t ? t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') : '';
+// ===== Утилиты =====
+const esc = t => t ? t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') : '';
 
 async function queryServer(server) {
   try {
@@ -27,7 +24,6 @@ async function queryServer(server) {
       host: server.host,
       port: server.port
     });
-
     return {
       online: true,
       name: server.name || s.name,
@@ -44,7 +40,7 @@ async function queryServer(server) {
   }
 }
 
-// ===== REPLY KEYBOARDS =====
+// ===== Кнопки =====
 const startKeyboard = { keyboard: [[{ text: '▶️ Старт' }]], resize_keyboard: true, one_time_keyboard: true };
 
 function mainKeyboard(isAdmin) {
@@ -66,7 +62,7 @@ function adminKeyboard() {
   };
 }
 
-// ===== Добавление пользователя в хранилище =====
+// ===== Добавление пользователя =====
 function addUser(id) {
   if (id) users.add(id);
 }
@@ -79,7 +75,7 @@ bot.onText(/\/start/, msg => {
   });
 });
 
-// ===== MESSAGE HANDLER (REPLY BUTTONS) =====
+// ===== Обработка сообщений (reply кнопки) =====
 bot.on('message', async msg => {
   const chatId = msg.chat.id;
   const text = msg.text;
@@ -87,16 +83,13 @@ bot.on('message', async msg => {
 
   addUser(msg.from.id);
 
-  // -------- Главные кнопки --------
+  // ===== Главные кнопки =====
   if (text === '▶️ Старт') {
-    return bot.sendMessage(chatId, 'Главное меню:', {
-      reply_markup: mainKeyboard(isAdmin)
-    });
+    return bot.sendMessage(chatId, 'Главное меню:', { reply_markup: mainKeyboard(isAdmin) });
   }
 
   if (text === 'ℹ️ О боте') {
-    return bot.sendMessage(
-      chatId,
+    return bot.sendMessage(chatId,
       '🤖 CS 1.6 Bot\n\nПоказывает:\n• имя сервера\n• карту\n• онлайн/макс игроков\n• список игроков\n\nРаботает 24/7 бесплатно',
       { reply_markup: mainKeyboard(isAdmin) }
     );
@@ -111,14 +104,10 @@ bot.on('message', async msg => {
 
   if (text === '🎮 Сервера') {
     if (!servers.length) {
-      return bot.sendMessage(chatId, 'Серверов пока нет', {
-        reply_markup: mainKeyboard(isAdmin)
-      });
+      return bot.sendMessage(chatId, 'Серверов пока нет', { reply_markup: mainKeyboard(isAdmin) });
     }
 
-    const inline = servers.map((s, i) => ([
-      { text: `${s.name}`, callback_data: `srv_${i}` }
-    ]));
+    const inline = servers.map((s,i) => ([{ text: s.name, callback_data: `srv_${i}` }]));
 
     return bot.sendMessage(chatId, 'Выберите сервер:', {
       reply_markup: { inline_keyboard: inline }
@@ -129,40 +118,32 @@ bot.on('message', async msg => {
     bot.sendMessage(chatId, 'Введите IP:PORT:Name (например 127.0.0.1:27015:Мой сервер)');
     bot.once('message', msg2 => {
       const [host, port, name] = msg2.text.split(':');
-      if (!host || !port) {
-        return bot.sendMessage(chatId, '❌ Неверный формат', {
-          reply_markup: mainKeyboard(isAdmin)
-        });
-      }
+      if (!host || !port) return bot.sendMessage(chatId, '❌ Неверный формат', { reply_markup: mainKeyboard(isAdmin) });
+
       servers.push({
         host: host.trim(),
         port: Number(port),
         name: name?.trim() || `Сервер ${servers.length + 1}`
       });
-      bot.sendMessage(chatId, `✅ Сервер добавлен: ${servers[servers.length-1].name}`, {
-        reply_markup: mainKeyboard(isAdmin)
-      });
+
+      bot.sendMessage(chatId, `✅ Сервер добавлен: ${servers[servers.length-1].name}`, { reply_markup: mainKeyboard(isAdmin) });
     });
   }
 
-  // -------- Админ-панель --------
+  // ===== Админ-панель =====
   if (text === '🛠 Админ' && isAdmin) {
     return bot.sendMessage(chatId, 'Админ-панель:', { reply_markup: adminKeyboard() });
   }
 
   if (isAdmin && text === '📊 Статистика') {
     return bot.sendMessage(chatId,
-      `📊 Статистика бота:\n` +
-      `• Серверов: ${servers.length}\n` +
-      `• Пользователей: ${users.size}`,
+      `📊 Статистика бота:\n• Серверов: ${servers.length}\n• Пользователей: ${users.size}`,
       { reply_markup: adminKeyboard() }
     );
   }
 
   if (isAdmin && text === '👥 Пользователи') {
-    return bot.sendMessage(chatId, `👥 Пользователи: ${users.size}`, {
-      reply_markup: adminKeyboard()
-    });
+    return bot.sendMessage(chatId, `👥 Пользователи: ${users.size}`, { reply_markup: adminKeyboard() });
   }
 
   if (isAdmin && text === '⬅️ Назад') {
@@ -178,9 +159,7 @@ bot.on('callback_query', async q => {
   addUser(q.from.id);
 
   if (data === 'back_servers') {
-    const inline = servers.map((s, i) => ([
-      { text: s.name, callback_data: `srv_${i}` }
-    ]));
+    const inline = servers.map((s,i) => ([{ text: s.name, callback_data: `srv_${i}` }]));
     return bot.editMessageText('Выберите сервер:', {
       chat_id: chatId,
       message_id: q.message.message_id,
@@ -208,13 +187,8 @@ bot.on('callback_query', async q => {
     `👥 Онлайн: ${info.players.length}/${info.max}\n\n` +
     `<b>Игроки:</b>\n`;
 
-  if (!info.players.length) {
-    text += '— пусто —';
-  } else {
-    info.players.forEach((p, i) => {
-      text += `${i + 1}. ${esc(p.name)} | ${p.score} | ${p.time} мин\n`;
-    });
-  }
+  if (!info.players.length) text += '— пусто —';
+  else info.players.forEach((p,i) => { text += `${i+1}. ${esc(p.name)} | ${p.score} | ${p.time} мин\n`; });
 
   bot.editMessageText(text, {
     chat_id: chatId,
