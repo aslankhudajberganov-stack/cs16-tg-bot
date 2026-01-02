@@ -1,190 +1,183 @@
 const TelegramBot = require('node-telegram-bot-api');
 const Gamedig = require('gamedig');
+const fs = require('fs');
+const path = require('path');
 const config = require('./config');
 
-const bot = new TelegramBot(config.token, { polling: true });
+if (!config.token) throw new Error('BOT_TOKEN не задан');
 
+const bot = new TelegramBot(config.token, { polling: true });
 console.log('🤖 Бот запущен');
 
-// =====================
-// ВРЕМЕННОЕ ХРАНЕНИЕ
-// =====================
-const bannedUsers = new Set();
+const servers = config.servers;
+const admins = config.admins;
 
-// =====================
-// REPLY-КНОПКИ
-// =====================
-const startKeyboard = {
-  reply_markup: {
-    keyboard: [[{ text: '▶️ Старт' }]],
-    resize_keyboard: true
+// ===== БАНЫ =====
+const bansFile = path.join(__dirname, 'bans.json');
+let bans = [];
+if (fs.existsSync(bansFile)) bans = JSON.parse(fs.readFileSync(bansFile, 'utf-8'));
+function saveBans() {
+  fs.writeFileSync(bansFile, JSON.stringify(bans, null, 2));
+}
+
+// ===== Utils =====
+const esc = t =>
+  t ? t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') : '';
+
+async function queryServer(server) {
+  try {
+    const s = await Gamedig.query({ type: 'cs16', host: server.host, port: server.port });
+    return {
+      online: true,
+      name: s.name,
+      map: s.map,
+      max: s.maxplayers,
+      players: s.players.map(p => ({
+        name: p.name || 'Unknown',
+        score: p.score ?? 0,
+        time: Math.floor((p.time || 0) / 60)
+      }))
+    };
+  } catch {
+    return { online: false };
   }
-};
+}
 
-const mainKeyboard = {
-  reply_markup: {
-    keyboard: [
-      ['🎮 Сервера'],
-      ['➕ Добавить сервер'],
-      ['ℹ️ О боте'],
-      ['📤 Поделиться ботом']
-    ],
-    resize_keyboard: true
-  }
-};
+// ===== Keyboards =====
+const startKeyboard = { keyboard: [[{ text: '▶️ Старт' }]], resize_keyboard: true, one_time_keyboard: true };
+function mainKeyboard(isAdmin) {
+  const rows = [
+    ['🎮 Сервера'],
+    ['ℹ️ О боте', '📤 Поделиться ботом']
+  ];
+  if (isAdmin) rows.push(['🛠 Админ']);
+  return { keyboard: rows, resize_keyboard: true };
+}
 
-// =====================
-// /start
-// =====================
-bot.onText(/\/start/, (msg) => {
-  const chatId = msg.chat.id;
-
-  if (bannedUsers.has(chatId)) return;
-
-  bot.sendMessage(
-    chatId,
-    '👋 Добро пожаловать!\nНажмите «Старт»',
-    startKeyboard
-  );
+// ===== /start =====
+bot.onText(/\/start/, msg => {
+  bot.sendMessage(msg.chat.id, 'Добро пожаловать 👋', { reply_markup: startKeyboard });
 });
 
-// =====================
-// ОБРАБОТКА СООБЩЕНИЙ
-// =====================
-bot.on('message', async (msg) => {
+// ===== MESSAGE HANDLER =====
+bot.on('message', async msg => {
   const chatId = msg.chat.id;
   const text = msg.text;
+  const isAdmin = admins.includes(msg.from.id);
 
-  if (bannedUsers.has(chatId)) return;
-  if (!text) return;
-
-  // ▶️ Старт
   if (text === '▶️ Старт') {
-    return bot.sendMessage(chatId, '📋 Главное меню', mainKeyboard);
+    return bot.sendMessage(chatId, 'Главное меню:', { reply_markup: mainKeyboard(isAdmin) });
   }
 
-  // 🎮 Сервера
   if (text === '🎮 Сервера') {
-    const inlineServers = config.servers.map((s, i) => ([
-      {
-        text: s.name,
-        callback_data: `server_${i}`
-      }
-    ]));
-
-    return bot.sendMessage(chatId, '🎮 Выберите сервер:', {
-      reply_markup: { inline_keyboard: inlineServers }
-    });
+    const inline = servers.map((s, i) => [{ text: s.name, callback_data: `srv_${i}` }]);
+    return bot.sendMessage(chatId, 'Выберите сервер:', { reply_markup: { inline_keyboard: inline } });
   }
 
-  // ➕ Добавить сервер
-  if (text === '➕ Добавить сервер') {
-    return bot.sendMessage(
-      chatId,
-      '❌ Пока недоступно\n(будет добавлено позже)'
-    );
-  }
-
-  // ℹ️ О боте
   if (text === 'ℹ️ О боте') {
-    return bot.sendMessage(
-      chatId,
-      `🤖 <b>CS 1.6 Online Monitor</b>
-
-📊 Онлайн мониторинг серверов
-👨‍💻 Разработчик: @leva_sdd
-🆔 ID: 6387957935`,
-      { parse_mode: 'HTML' }
+    return bot.sendMessage(chatId,
+      '🤖 CS 1.6 Bot\n\nПоказывает:\n• имя сервера\n• карту\n• онлайн\n• список игроков\n\nРаботает 24/7 бесплатно',
+      { reply_markup: mainKeyboard(isAdmin) }
     );
   }
 
-  // 📤 Поделиться ботом
   if (text === '📤 Поделиться ботом') {
-    return bot.sendPhoto(
-      chatId,
-      'https://i.postimg.cc/ZRj839L0/images.jpg',
-      {
-        caption: '🔥 Лучший бот для мониторинга CS 1.6 серверов!',
-        reply_markup: {
-          inline_keyboard: [[
-            {
-              text: '📤 Поделиться',
-              switch_inline_query: 'CS 1.6 Online Monitor'
-            }
-          ]]
-        }
-      }
-    );
+    return bot.sendMessage(chatId, '📎 Поделись ботом с друзьями: t.me/ТВОЙ_БОТ_ЮЗЕРНЕЙМ', { reply_markup: mainKeyboard(isAdmin) });
   }
 
-  // 👑 Админ панель
-  if (text === '/admin' && config.admins.includes(chatId)) {
-    return bot.sendMessage(chatId, '👑 Админ панель', {
-      reply_markup: {
-        keyboard: [
-          ['📊 Статистика'],
-          ['🚫 Бан', '✅ Разбан'],
-          ['⬅️ Назад']
-        ],
-        resize_keyboard: true
-      }
-    });
-  }
-
-  if (text === '⬅️ Назад') {
-    return bot.sendMessage(chatId, '📋 Главное меню', mainKeyboard);
-  }
-
-  if (text === '📊 Статистика' && config.admins.includes(chatId)) {
-    let totalPlayers = 0;
-
-    for (const s of config.servers) {
-      try {
-        const state = await Gamedig.query({
-          type: 'cs16',
-          host: s.host,
-          port: s.port
-        });
-        totalPlayers += state.players.length;
-      } catch {}
-    }
-
-    return bot.sendMessage(
-      chatId,
-      `📊 Статистика:\n🎮 Серверов: ${config.servers.length}\n👥 Игроков онлайн: ${totalPlayers}`
-    );
+  if (text === '🛠 Админ' && isAdmin) {
+    const inline = [
+      [{ text: '📊 Статистика серверов', callback_data: 'admin_stats' }],
+      [{ text: '🚫 Бан игрока', callback_data: 'admin_ban' }],
+      [{ text: '✅ Разбан игрока', callback_data: 'admin_unban' }]
+    ];
+    return bot.sendMessage(chatId, '🛠 Админ-панель:', { reply_markup: { inline_keyboard: inline } });
   }
 });
 
-// =====================
-// INLINE ОБРАБОТКА
-// =====================
-bot.on('callback_query', async (q) => {
+// ===== INLINE CALLBACKS =====
+bot.on('callback_query', async q => {
   const chatId = q.message.chat.id;
   const data = q.data;
+  const isAdmin = admins.includes(q.from.id);
 
-  if (!data.startsWith('server_')) return;
+  // Серверы
+  if (data.startsWith('srv_')) {
+    const id = Number(data.split('_')[1]);
+    const server = servers[id];
+    const info = await queryServer(server);
 
-  const index = parseInt(data.split('_')[1]);
-  const server = config.servers[index];
+    if (!info.online) {
+      return bot.editMessageText('❌ Сервер OFFLINE', {
+        chat_id: chatId,
+        message_id: q.message.message_id,
+        reply_markup: { inline_keyboard: [[{ text: '⬅️ Назад', callback_data: 'back_servers' }]] }
+      });
+    }
 
-  try {
-    const state = await Gamedig.query({
-      type: 'cs16',
-      host: server.host,
-      port: server.port
+    let text = `🎮 <b>${esc(server.name)}</b>\n🗺 Карта: ${esc(info.map)}\n👥 Онлайн: ${info.players.length}/${info.max}\n\n<b>Игроки:</b>\n`;
+    if (!info.players.length) text += '— пусто —';
+    else {
+      info.players.forEach((p, i) => {
+        const banned = bans.includes(p.name) ? ' 🚫' : '';
+        text += `${i + 1}. ${esc(p.name)} | ${p.score} | ${p.time} мин${banned}\n`;
+      });
+    }
+
+    return bot.editMessageText(text, {
+      chat_id: chatId,
+      message_id: q.message.message_id,
+      parse_mode: 'HTML',
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: '🔄 Обновить', callback_data: `srv_${id}` }],
+          [{ text: '⬅️ Назад к серверам', callback_data: 'back_servers' }]
+        ]
+      }
     });
-
-    const text =
-      `🎮 <b>${server.name}</b>\n` +
-      `🌐 ${server.host}:${server.port}\n` +
-      `🗺 Карта: ${state.map}\n` +
-      `👥 Игроки: ${state.players.length}/${state.maxplayers}`;
-
-    bot.sendMessage(chatId, text, { parse_mode: 'HTML' });
-  } catch {
-    bot.sendMessage(chatId, `❌ Сервер ${server.name} недоступен`);
   }
 
-  bot.answerCallbackQuery(q.id);
+  // Назад к списку серверов
+  if (data === 'back_servers') {
+    const inline = servers.map((s, i) => [{ text: s.name, callback_data: `srv_${i}` }]);
+    return bot.editMessageText('Выберите сервер:', { chat_id: chatId, message_id: q.message.message_id, reply_markup: { inline_keyboard: inline } });
+  }
+
+  // Админ
+  if (!isAdmin) return;
+
+  if (data === 'admin_stats') {
+    let text = '📊 Статистика серверов:\n\n';
+    for (let s of servers) {
+      const info = await queryServer(s);
+      const online = info.online ? '✅ Online' : '❌ Offline';
+      const players = info.players ? info.players.length : 0;
+      text += `${s.name}: ${online} | Игроков: ${players}\n`;
+    }
+    return bot.editMessageText(text, { chat_id: chatId, message_id: q.message.message_id });
+  }
+
+  if (data === 'admin_ban') {
+    bot.sendMessage(chatId, 'Введите ник игрока для бана:');
+    bot.once('message', msg => {
+      const name = msg.text.trim();
+      if (!bans.includes(name)) {
+        bans.push(name);
+        saveBans();
+        bot.sendMessage(chatId, `✅ Игрок "${name}" забанен`);
+      } else bot.sendMessage(chatId, `❌ Игрок "${name}" уже в бане`);
+    });
+  }
+
+  if (data === 'admin_unban') {
+    bot.sendMessage(chatId, 'Введите ник игрока для разбана:');
+    bot.once('message', msg => {
+      const name = msg.text.trim();
+      if (bans.includes(name)) {
+        bans = bans.filter(n => n !== name);
+        saveBans();
+        bot.sendMessage(chatId, `✅ Игрок "${name}" разбанен`);
+      } else bot.sendMessage(chatId, `❌ Игрок "${name}" не в бане`);
+    });
+  }
 });
