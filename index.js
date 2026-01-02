@@ -3,23 +3,15 @@ const Gamedig = require('gamedig');
 const config = require('./config');
 
 const TOKEN = process.env.BOT_TOKEN;
-const RAILWAY_URL = process.env.RAILWAY_STATIC_URL || '';
+const RAILWAY_URL = process.env.RAILWAY_STATIC_URL;
 
 if (!TOKEN) throw new Error('BOT_TOKEN не задан!');
+if (!RAILWAY_URL) throw new Error('RAILWAY_STATIC_URL не задан!');
 
-// ===== Настройка бота: polling локально, webhook на Railway =====
-let bot;
+const bot = new TelegramBot(TOKEN, { webHook: true });
+bot.setWebHook(`${RAILWAY_URL}/bot${TOKEN}`);
+console.log('🤖 Бот запущен через WebHook на Railway!');
 
-if (RAILWAY_URL) {
-  bot = new TelegramBot(TOKEN, { webHook: true });
-  bot.setWebHook(`${RAILWAY_URL}/bot${TOKEN}`);
-  console.log('🤖 Бот запущен через Webhook на Railway!');
-} else {
-  bot = new TelegramBot(TOKEN, { polling: true });
-  bot.deleteWebHook().then(() => console.log('🤖 Webhook удалён, бот запущен локально через polling'));
-}
-
-// ===== Переменные =====
 const servers = config.servers;
 const admins = config.admins;
 const users = new Map();
@@ -27,7 +19,6 @@ const banned = new Set();
 
 const esc = t => t ? t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') : '';
 
-// ===== Функция запроса сервера =====
 async function queryServer(server) {
   try {
     const s = await Gamedig.query({ type: 'cs16', host: server.host, port: server.port });
