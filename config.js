@@ -1,6 +1,6 @@
 module.exports = {
-  token: process.env.BOT_TOKEN, // токен из переменной окружения
-  admins: [123456789],          // твой Telegram ID
+  token: process.env.BOT_TOKEN, // токен бота из переменной окружения
+  admins: [6387957935],         // ID админа
 
   // Три сервера по умолчанию
   servers: [
