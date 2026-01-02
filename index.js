@@ -22,16 +22,16 @@ async function queryServer(server) {
     return {
       online: true,
       name: server.name || s.name,
-      map: s.map,
-      max: s.maxplayers,
-      players: s.players.map(p => ({
+      map: s.map || '-',
+      max: s.maxplayers || 0,
+      players: Array.isArray(s.players) ? s.players.map(p => ({
         name: p.name || 'Unknown',
         score: p.score ?? 0,
         time: Math.floor((p.time || 0)/60)
-      }))
+      })) : []
     };
   } catch {
-    return { online: false, name: server.name };
+    return { online: false, name: server.name, map: '-', max: 0, players: [] };
   }
 }
 
@@ -57,15 +57,11 @@ function adminKeyboard() {
   };
 }
 
-// ===== Проверка бана =====
-function isBanned(userId) {
-  return banned.has(userId);
-}
-
-// ===== Добавление пользователя =====
+// ===== Пользователи =====
 function addUser(msgOrQ) {
   if (!msgOrQ || !msgOrQ.from) return false;
   const userId = msgOrQ.from.id;
+  if (!userId) return false;
   if (banned.has(userId)) return false;
   users.set(userId, { username: msgOrQ.from.username, first_name: msgOrQ.from.first_name });
   return true;
@@ -77,7 +73,7 @@ bot.onText(/\/start/, msg => {
   bot.sendMessage(msg.chat.id, 'Добро пожаловать 👋', { reply_markup: startKeyboard });
 });
 
-// ===== Обработка сообщений (reply кнопки) =====
+// ===== Сообщения =====
 bot.on('message', async msg => {
   const chatId = msg.chat.id;
   const text = msg.text;
@@ -88,9 +84,7 @@ bot.on('message', async msg => {
   if (!text) return;
 
   // ===== Главные кнопки =====
-  if (text === '▶️ Старт') {
-    return bot.sendMessage(chatId, 'Главное меню:', { reply_markup: mainKeyboard(isAdmin) });
-  }
+  if (text === '▶️ Старт') return bot.sendMessage(chatId, 'Главное меню:', { reply_markup: mainKeyboard(isAdmin) });
 
   if (text === 'ℹ️ О боте') {
     return bot.sendMessage(chatId,
@@ -103,11 +97,7 @@ bot.on('message', async msg => {
     return bot.sendPhoto(chatId, 'https://i.postimg.cc/ZRj839L0/images.jpg', {
       caption: `🤖 *CS 1.6 Bot*\n\nПоказывает сервера CS 1.6, онлайн игроков и карты.\n\nПоделитесь ботом с друзьями или в группе!`,
       parse_mode: 'Markdown',
-      reply_markup: {
-        inline_keyboard: [
-          [{ text: 'Переслать друзьям', switch_inline_query: '' }]
-        ]
-      }
+      reply_markup: { inline_keyboard: [[{ text: 'Переслать друзьям', switch_inline_query: '' }]] }
     });
   }
 
@@ -130,25 +120,17 @@ bot.on('message', async msg => {
   }
 
   // ===== Админ-панель =====
-  if (text === '🛠 Админ' && isAdmin) {
-    return bot.sendMessage(chatId, 'Админ-панель:', { reply_markup: adminKeyboard() });
-  }
+  if (text === '🛠 Админ' && isAdmin) return bot.sendMessage(chatId, 'Админ-панель:', { reply_markup: adminKeyboard() });
 
-  if (isAdmin && text === '📊 Статистика') {
-    return bot.sendMessage(chatId,
-      `📊 Статистика бота:\n• Серверов: ${servers.length}\n• Пользователей: ${users.size}\n• Забанено: ${banned.size}`,
-      { reply_markup: adminKeyboard() }
-    );
-  }
+  if (isAdmin && text === '📊 Статистика') return bot.sendMessage(chatId,
+    `📊 Статистика бота:\n• Серверов: ${servers.length}\n• Пользователей: ${users.size}\n• Забанено: ${banned.size}`, { reply_markup: adminKeyboard() });
 
   if (isAdmin && text === '👥 Пользователи') {
     const list = [...users.values()].map(u => u.username ? `@${u.username}` : u.first_name).join('\n');
     return bot.sendMessage(chatId, `👥 Пользователи:\n${list || '— пока нет —'}`, { reply_markup: adminKeyboard() });
   }
 
-  if (isAdmin && text === '⬅️ Назад') {
-    return bot.sendMessage(chatId, 'Главное меню:', { reply_markup: mainKeyboard(true) });
-  }
+  if (isAdmin && text === '⬅️ Назад') return bot.sendMessage(chatId, 'Главное меню:', { reply_markup: mainKeyboard(true) });
 
   if (isAdmin && text === '🚫 Бан/Разбан') {
     return bot.sendMessage(chatId,
@@ -158,11 +140,10 @@ bot.on('message', async msg => {
   }
 });
 
-// ===== INLINE CALLBACKS =====
+// ===== Inline server info =====
 bot.on('callback_query', async q => {
   const chatId = q.message.chat.id;
   const data = q.data;
-
   addUser(q);
 
   if (data === 'back_servers') {
@@ -174,27 +155,17 @@ bot.on('callback_query', async q => {
 
   const id = Number(data.split('_')[1]);
   const server = servers[id];
-  const info = await queryServer(server); // Запрос к серверу через Gamedig
-
-  if (!info.online) {
-    return bot.editMessageText(`❌ Сервер OFFLINE: ${server.name}`, {
-      chat_id,
-      message_id: q.message.message_id,
-      reply_markup: { inline_keyboard: [[{ text: '⬅️ Назад к серверам', callback_data: 'back_servers' }]] }
-    });
-  }
+  const info = await queryServer(server);
 
   let text =
     `🎮 <b>${esc(info.name)}</b>\n` +
     `🗺 Карта: ${esc(info.map)}\n` +
     `👥 Онлайн: ${info.players.length}/${info.max}\n` +
-    `✅ Статус: ONLINE\n\n` +
+    `✅ Статус: ${info.online ? 'ONLINE' : 'OFFLINE'}\n\n` +
     `<b>Игроки:</b>\n`;
 
   if (!info.players.length) text += '— пусто —';
-  else info.players.forEach((p,i) => { 
-    text += `${i+1}. ${esc(p.name)} | ${p.score} | ${p.time} мин\n`; 
-  });
+  else info.players.forEach((p,i) => { text += `${i+1}. ${esc(p.name)} | ${p.score} | ${p.time} мин\n`; });
 
   bot.editMessageText(text, {
     chat_id,
