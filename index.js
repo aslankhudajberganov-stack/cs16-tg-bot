@@ -13,6 +13,9 @@ console.log('🤖 Бот запущен');
 const servers = config.servers;
 const admins = config.admins;
 
+// ===== Хранилище пользователей =====
+let users = new Set();
+
 // ===== utils =====
 const esc = t =>
   t ? t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') : '';
@@ -76,6 +79,9 @@ bot.on('message', async msg => {
   const text = msg.text;
   const isAdmin = admins.includes(msg.from.id);
 
+  // Добавляем пользователя в хранилище
+  users.add(msg.from.id);
+
   if (text === '▶️ Старт') {
     return bot.sendMessage(chatId, 'Главное меню:', {
       reply_markup: mainKeyboard(isAdmin)
@@ -130,13 +136,14 @@ bot.on('message', async msg => {
   if (isAdmin && text === '📊 Статистика') {
     return bot.sendMessage(chatId,
       `📊 Статистика бота:\n` +
-      `• Серверов: ${servers.length}\n`,
+      `• Серверов: ${servers.length}\n` +
+      `• Пользователей: ${users.size}\n`,
       { reply_markup: adminKeyboard() }
     );
   }
 
   if (isAdmin && text === '👥 Пользователи') {
-    return bot.sendMessage(chatId, 'Пользователи: (в разработке)', {
+    return bot.sendMessage(chatId, `👥 Пользователи: ${users.size}`, {
       reply_markup: adminKeyboard()
     });
   }
