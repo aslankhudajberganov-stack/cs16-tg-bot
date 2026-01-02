@@ -9,7 +9,7 @@ if (!config.token) throw new Error('BOT_TOKEN не задан');
 const bot = new TelegramBot(config.token, { polling: true });
 console.log('🤖 Бот запущен');
 
-const servers = config.servers; // три сервера по умолчанию
+const servers = config.servers;
 const admins = config.admins;
 
 // ===== БАНЫ =====
@@ -45,7 +45,6 @@ async function queryServer(server) {
 
 // ===== Keyboards =====
 const startKeyboard = { keyboard: [[{ text: '▶️ Старт' }]], resize_keyboard: true, one_time_keyboard: true };
-
 function mainKeyboard(isAdmin) {
   const rows = [
     ['🎮 Сервера'],
@@ -66,18 +65,15 @@ bot.on('message', async msg => {
   const text = msg.text;
   const isAdmin = admins.includes(msg.from.id);
 
-  // Стартовое меню
   if (text === '▶️ Старт') {
     return bot.sendMessage(chatId, 'Главное меню:', { reply_markup: mainKeyboard(isAdmin) });
   }
 
-  // 🎮 Сервера
   if (text === '🎮 Сервера') {
     const inline = servers.map((s, i) => [{ text: s.name, callback_data: `srv_${i}` }]);
     return bot.sendMessage(chatId, 'Выберите сервер:', { reply_markup: { inline_keyboard: inline } });
   }
 
-  // ℹ️ О боте
   if (text === 'ℹ️ О боте') {
     return bot.sendMessage(chatId,
       '🤖 CS 1.6 Bot\n\nПоказывает:\n• имя сервера\n• карту\n• онлайн\n• список игроков\n\nРаботает 24/7 бесплатно',
@@ -85,12 +81,10 @@ bot.on('message', async msg => {
     );
   }
 
-  // 📤 Поделиться ботом
   if (text === '📤 Поделиться ботом') {
     return bot.sendMessage(chatId, '📎 Поделись ботом с друзьями: t.me/ТВОЙ_БОТ_ЮЗЕРНЕЙМ', { reply_markup: mainKeyboard(isAdmin) });
   }
 
-  // 🛠 Админ
   if (text === '🛠 Админ' && isAdmin) {
     const inline = [
       [{ text: '📊 Статистика серверов', callback_data: 'admin_stats' }],
@@ -107,7 +101,7 @@ bot.on('callback_query', async q => {
   const data = q.data;
   const isAdmin = admins.includes(q.from.id);
 
-  // --- Серверы ---
+  // Серверы
   if (data.startsWith('srv_')) {
     const id = Number(data.split('_')[1]);
     const server = servers[id];
@@ -143,16 +137,15 @@ bot.on('callback_query', async q => {
     });
   }
 
-  // --- Назад к списку серверов ---
+  // Назад к списку серверов
   if (data === 'back_servers') {
     const inline = servers.map((s, i) => [{ text: s.name, callback_data: `srv_${i}` }]);
     return bot.editMessageText('Выберите сервер:', { chat_id: chatId, message_id: q.message.message_id, reply_markup: { inline_keyboard: inline } });
   }
 
-  // --- Админ ---
+  // Админ
   if (!isAdmin) return;
 
-  // Статистика серверов
   if (data === 'admin_stats') {
     let text = '📊 Статистика серверов:\n\n';
     for (let s of servers) {
@@ -164,7 +157,6 @@ bot.on('callback_query', async q => {
     return bot.editMessageText(text, { chat_id: chatId, message_id: q.message.message_id });
   }
 
-  // Бан игрока
   if (data === 'admin_ban') {
     bot.sendMessage(chatId, 'Введите ник игрока для бана:');
     bot.once('message', msg => {
@@ -177,7 +169,6 @@ bot.on('callback_query', async q => {
     });
   }
 
-  // Разбан игрока
   if (data === 'admin_unban') {
     bot.sendMessage(chatId, 'Введите ник игрока для разбана:');
     bot.once('message', msg => {
