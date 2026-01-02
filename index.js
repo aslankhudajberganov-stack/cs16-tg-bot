@@ -2,39 +2,31 @@ const TelegramBot = require('node-telegram-bot-api');
 const Gamedig = require('gamedig');
 const config = require('./config');
 
-// ===== Переменные окружения =====
 const TOKEN = process.env.BOT_TOKEN;
 const RAILWAY_URL = process.env.RAILWAY_STATIC_URL;
 
-// Проверка токена
-if (!TOKEN) {
-  console.error('❌ Ошибка: BOT_TOKEN не задан! Установите переменную BOT_TOKEN.');
-  process.exit(1);
+if (!TOKEN) throw new Error('❌ BOT_TOKEN не задан!');
+
+let bot;
+
+if (RAILWAY_URL) {
+  // Webhook для Railway
+  bot = new TelegramBot(TOKEN);
+  bot.setWebHook(`${RAILWAY_URL}/bot${TOKEN}`);
+  console.log('🤖 Бот запущен через Webhook на Railway!');
+} else {
+  // Polling fallback
+  bot = new TelegramBot(TOKEN, { polling: true });
+  console.warn('⚠️ RAILWAY_STATIC_URL не задан. Запускаем бот локально через polling...');
 }
 
-// Проверка URL для WebHook
-if (!RAILWAY_URL) {
-  console.error('❌ Ошибка: RAILWAY_STATIC_URL не задан! Установите переменную окружения RAILWAY_STATIC_URL на Railway.');
-  process.exit(1);
-}
-
-// ===== Создаём бота через WebHook =====
-const bot = new TelegramBot(TOKEN, { webHook: true });
-
-bot.setWebHook(`${RAILWAY_URL}/bot${TOKEN}`)
-  .then(() => console.log('✅ Бот запущен через WebHook на Railway!'))
-  .catch(err => console.error('❌ Ошибка установки WebHook:', err));
-
-// ===== Данные =====
 const servers = config.servers;
 const admins = config.admins;
 const users = new Map();
 const banned = new Set();
 
-// ===== HTML экранирование =====
 const esc = t => t ? t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') : '';
 
-// ===== Запрос серверов =====
 async function queryServer(server) {
   try {
     const s = await Gamedig.query({ type: 'cs16', host: server.host, port: server.port });
@@ -54,7 +46,7 @@ async function queryServer(server) {
   }
 }
 
-// ===== Клавиатуры =====
+// ===== Reply и Inline клавиатуры =====
 const startKeyboard = { keyboard: [[{ text: '▶️ Старт' }]], resize_keyboard: true, one_time_keyboard: true };
 
 function mainKeyboard(isAdmin) {
@@ -77,15 +69,12 @@ function adminKeyboard() {
 }
 
 // ===== Пользователи =====
-function addUser(obj) {
-  const from = obj?.from;
-  if (!from) return false;
-
-  const userId = from.id;
+function addUser(msgOrQ) {
+  if (!msgOrQ || !msgOrQ.from) return false;
+  const userId = msgOrQ.from.id;
   if (!userId) return false;
   if (banned.has(userId)) return false;
-
-  users.set(userId, { username: from.username, first_name: from.first_name });
+  users.set(userId, { username: msgOrQ.from.username, first_name: msgOrQ.from.first_name });
   return true;
 }
 
@@ -104,14 +93,16 @@ bot.on('message', async msg => {
   addUser(msg);
   if (!text) return;
 
-  // Главное меню
+  // ===== Главные кнопки =====
   if (text === '▶️ Старт') return bot.sendMessage(chatId, 'Главное меню:', { reply_markup: mainKeyboard(isAdmin) });
+
   if (text === 'ℹ️ О боте') {
     return bot.sendMessage(chatId,
       `🤖 CS 1.6 Bot\n\nРазработчик: [Написать разработчику](tg://user?id=6387957935)\n\nФункции:\n• Показывает сервера\n• Онлайн игроков\n• Карта и статус сервера\n• Список игроков`,
       { parse_mode: 'Markdown', reply_markup: mainKeyboard(isAdmin) }
     );
   }
+
   if (text === '📤 Поделиться ботом') {
     return bot.sendPhoto(chatId, 'https://i.postimg.cc/ZRj839L0/images.jpg', {
       caption: `🤖 *CS 1.6 Bot*\n\nПоказывает сервера CS 1.6, онлайн игроков и карты.\n\nПоделитесь ботом с друзьями или в группе!`,
@@ -120,7 +111,7 @@ bot.on('message', async msg => {
     });
   }
 
-  // Серверы
+  // ===== Серверы =====
   if (text === '🎮 Сервера') {
     if (!servers.length) return bot.sendMessage(chatId, 'Серверов пока нет', { reply_markup: mainKeyboard(isAdmin) });
     const inline = servers.map((s,i) => ([{ text: s.name, callback_data: `srv_${i}` }]));
@@ -138,15 +129,19 @@ bot.on('message', async msg => {
     });
   }
 
-  // Админ
+  // ===== Админ-панель =====
   if (text === '🛠 Админ' && isAdmin) return bot.sendMessage(chatId, 'Админ-панель:', { reply_markup: adminKeyboard() });
+
   if (isAdmin && text === '📊 Статистика') return bot.sendMessage(chatId,
     `📊 Статистика бота:\n• Серверов: ${servers.length}\n• Пользователей: ${users.size}\n• Забанено: ${banned.size}`, { reply_markup: adminKeyboard() });
+
   if (isAdmin && text === '👥 Пользователи') {
     const list = [...users.values()].map(u => u.username ? `@${u.username}` : u.first_name).join('\n');
     return bot.sendMessage(chatId, `👥 Пользователи:\n${list || '— пока нет —'}`, { reply_markup: adminKeyboard() });
   }
+
   if (isAdmin && text === '⬅️ Назад') return bot.sendMessage(chatId, 'Главное меню:', { reply_markup: mainKeyboard(true) });
+
   if (isAdmin && text === '🚫 Бан/Разбан') {
     return bot.sendMessage(chatId,
       'Отправьте команду:\n/ban @username\n/unban @username',
@@ -158,7 +153,7 @@ bot.on('message', async msg => {
 // ===== Inline server info =====
 bot.on('callback_query', async q => {
   try {
-    const chatId = q.message.chat.id; // ✅ исправлено
+    const chatId = q.message.chat.id;
     const data = q.data;
 
     addUser(q);
@@ -171,4 +166,31 @@ bot.on('callback_query', async q => {
     if (!data.startsWith('srv_')) return;
 
     const id = Number(data.split('_')[1]);
-    const serv
+    const server = servers[id];
+    const info = await queryServer(server);
+
+    let text =
+      `🎮 <b>${esc(info.name)}</b>\n` +
+      `🗺 Карта: ${esc(info.map)}\n` +
+      `👥 Онлайн: ${info.players.length}/${info.max}\n` +
+      `✅ Статус: ${info.online ? 'ONLINE' : 'OFFLINE'}\n\n` +
+      `<b>Игроки:</b>\n`;
+
+    if (!info.players.length) text += '— пусто —';
+    else info.players.forEach((p,i) => { text += `${i+1}. ${esc(p.name)} | ${p.score} | ${p.time} мин\n`; });
+
+    await bot.editMessageText(text, {
+      chat_id: chatId,
+      message_id: q.message.message_id,
+      parse_mode: 'HTML',
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: '🔄 Обновить', callback_data: `srv_${id}` }],
+          [{ text: '⬅️ Назад к серверам', callback_data: 'back_servers' }]
+        ]
+      }
+    });
+  } catch (err) {
+    console.error('❌ Ошибка в callback_query:', err);
+  }
+});
